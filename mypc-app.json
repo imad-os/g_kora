@@ -25,38 +25,6 @@
       { "id": 529, "name": "Barcelona" },
       { "id": 23, "name": "Morocco" }
     ]
-  },
-  "widgets": [
-    {
-      "id": "scores",
-      "title": "Football Live",
-      "file": "widgets/scores.js",
-      "size": "medium",
-      "every": 15,
-      "background": false,
-      "description": "Today's favorite match and live scores"
-    }
-  ],
-  "services": [
-    {
-      "id": "match-alerts",
-      "file": "services/notify.js",
-      "every": 5,
-      "title": "Match & Goal alerts"
-    }
-  ],
-  "touch": {
-    "buttons": [
-      { "label": "B", "action": "ok", "place": "bottom" },
-      { "label": "A", "action": "b", "place": "right" },
-      { "label": "X", "action": "run", "place": "top" },
-      { "label": "Y", "action": "cancel", "place": "left" }
-    ],
-    "catalog": [
-      { "label": "B", "action": "ok", "place": "bottom" },
-      { "label": "A", "action": "b", "place": "right" },
-      { "label": "X", "action": "run", "place": "top" },
-      { "label": "Y", "action": "cancel", "place": "left" }
-    ]
   }
+
 }
