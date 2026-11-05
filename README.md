@@ -1,11 +1,21 @@
-<div align="center">
+todo:
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+remove themes
+on channelUP Down : navigate dates ; channel up date+1day , channelDown date-1day
 
-  <h1>Built with AI Studio</h2>
 
-  <p>The fastest path from prompt to production with Gemini.</p>
-
-  <a href="https://aistudio.google.com/apps">Start building</a>
-
-</div>
+{
+    "get": "fixtures",
+    "parameters": {
+        "live": "all"
+    },
+    "errors": {
+        "requests": "You have reached the request limit for the day, Go to https://dashboard.api-football.com to upgrade your plan."
+    },
+    "results": 0,
+    "paging": {
+        "current": 1,
+        "total": 1
+    },
+    "response": []
+}

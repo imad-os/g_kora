@@ -1,0 +1,62 @@
+{
+  "mypc": 1,
+  "id": "football-live",
+  "name": "Football Live",
+  "description": "Live football scores, match fixtures, standings, and goal alerts for TV and gamepad",
+  "type": "app",
+  "entry": "index.html",
+  "icon": "assets/icon.png",
+  "version": "1.0.0",
+  "config": {
+    "refreshSec": 30,
+    "allowed_leagues": [
+      { "id": 39, "name": "Premier League" },
+      { "id": 140, "name": "La Liga" },
+      { "id": 135, "name": "Serie A" },
+      { "id": 78, "name": "Bundesliga" },
+      { "id": 61, "name": "Ligue 1" },
+      { "id": 2, "name": "UEFA Champions League" },
+      { "id": 3, "name": "UEFA Europa League" }
+    ],
+    "favorite_teams": [
+      { "id": 85, "name": "Paris Saint Germain" },
+      { "id": 50, "name": "Manchester City" },
+      { "id": 541, "name": "Real Madrid" },
+      { "id": 529, "name": "Barcelona" },
+      { "id": 23, "name": "Morocco" }
+    ]
+  },
+  "widgets": [
+    {
+      "id": "scores",
+      "title": "Football Live",
+      "file": "widgets/scores.js",
+      "size": "medium",
+      "every": 15,
+      "background": false,
+      "description": "Today's favorite match and live scores"
+    }
+  ],
+  "services": [
+    {
+      "id": "match-alerts",
+      "file": "services/notify.js",
+      "every": 5,
+      "title": "Match & Goal alerts"
+    }
+  ],
+  "touch": {
+    "buttons": [
+      { "label": "B", "action": "ok", "place": "bottom" },
+      { "label": "A", "action": "b", "place": "right" },
+      { "label": "X", "action": "run", "place": "top" },
+      { "label": "Y", "action": "cancel", "place": "left" }
+    ],
+    "catalog": [
+      { "label": "B", "action": "ok", "place": "bottom" },
+      { "label": "A", "action": "b", "place": "right" },
+      { "label": "X", "action": "run", "place": "top" },
+      { "label": "Y", "action": "cancel", "place": "left" }
+    ]
+  }
+}

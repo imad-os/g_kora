@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive architectural and execution plan to adapt FootballLive / Lite Football TV into an official My PC Samsung Smart TV application. Covers SDK lifecycle, gamepad and TV remote mappings, removal of Firebase and custom proxies in favor of MyPC.save and MyPC.net, desktop widget and notification services, and publication checklist.",
+  "updatedAt": "2026-11-05T14:52:35.330296576Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

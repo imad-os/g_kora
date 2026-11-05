@@ -1,0 +1,8 @@
+{
+  "name": "Football Live",
+  "description": "Live football scores, fixtures, standings, and match details adapted for My PC and Smart TV.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
