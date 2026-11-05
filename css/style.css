@@ -1575,3 +1575,32 @@ body {
     margin: 0.8rem auto;
     box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
 }
+
+/* Settings Page & Select dropdowns */
+.settings-page {
+    padding: 2rem 2.5rem;
+    max-width: 950px;
+}
+
+.styled-select {
+    width: 100%;
+    padding: 0.8rem 1rem;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    font-size: 1.05rem;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, background-color 0.15s;
+}
+
+.styled-select:focus,
+.styled-select.focused {
+    outline: 3px solid #38bdf8 !important;
+    outline-offset: 0 !important;
+    border-color: #38bdf8 !important;
+    background: #1e293b !important;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5) !important;
+}
+

@@ -11,9 +11,60 @@ const Navigation = (function() {
     let scrollThrottle = null;
     let scrollHold = { active: false, el: null, dir: 0, raf: 0, lastTs: 0 };
 
+    let lastActionTime = 0;
+    let lastActionKey = '';
+
+    function initKeyboardBridge() {
+        function onKey(e, isDown) {
+            const tag = e.target && e.target.tagName;
+            const isTextInput = (tag === 'INPUT' && !/^(button|checkbox|radio|submit)$/i.test(e.target.type)) || tag === 'TEXTAREA';
+            
+            const code = e.keyCode || e.which;
+            const key = e.key;
+
+            let action = null;
+
+            if (key === 'ArrowLeft' || code === 37 || (!isTextInput && (key === 'a' || key === 'A'))) action = 'left';
+            else if (key === 'ArrowRight' || code === 39 || (!isTextInput && (key === 'd' || key === 'D'))) action = 'right';
+            else if (key === 'ArrowUp' || code === 38 || (!isTextInput && (key === 'w' || key === 'W'))) action = 'up';
+            else if (key === 'ArrowDown' || code === 40 || (!isTextInput && (key === 's' || key === 'S'))) action = 'down';
+            else if (key === 'Enter' || code === 13 || (!isTextInput && (key === ' ' || code === 32 || key === 'k' || key === 'K'))) action = 'ok';
+            else if (key === 'Escape' || code === 27 || code === 10009 || key === 'Backspace' || code === 8 || key === 'j' || key === 'J' || key === 'XF86Back') action = 'cancel';
+            else if (key === 'PageUp' || code === 33 || code === 427 || (!isTextInput && (key === 'e' || key === 'E'))) action = 'pageUp';
+            else if (key === 'PageDown' || code === 34 || code === 428 || (!isTextInput && (key === 'q' || key === 'Q'))) action = 'pageDown';
+            else if (!isTextInput && (key === 'x' || key === 'X')) action = 'run';
+            else if (!isTextInput && (key === 'y' || key === 'Y' || key === 'c' || key === 'C')) action = 'y';
+            else if (!isTextInput && (key === 'm' || key === 'M' || key === 'Tab' || code === 9)) action = 'menu';
+
+            if (action) {
+                if (['left','right','up','down','ok','pageUp','pageDown','menu','run','y'].includes(action) || code === 10009) {
+                    if (!isTextInput || action === 'cancel') {
+                        e.preventDefault();
+                    }
+                }
+
+                const now = Date.now();
+                if (isDown && now - lastActionTime < 45 && lastActionKey === action) {
+                    return;
+                }
+                if (isDown) {
+                    lastActionTime = now;
+                    lastActionKey = action;
+                }
+
+                handleAction(action, isDown, e.repeat, 'keys');
+            }
+        }
+
+        window.addEventListener('keydown', (e) => onKey(e, true));
+        window.addEventListener('keyup', (e) => onKey(e, false));
+    }
+
     function init() {
-        // Optional mouse hover support for desktop browsers
-        document.addEventListener('mouseover', (e) => {
+        initKeyboardBridge();
+
+        // Click/tap support for pointer devices
+        document.addEventListener('pointerdown', (e) => {
             const target = e.target.closest(focusableSelector);
             if (target && target !== currentFocus) {
                 focus(target, false);
@@ -79,10 +130,10 @@ const Navigation = (function() {
         }
     }
 
-    function scan() {
+    function scan(force = false) {
         const root = activeScope || document.body;
 
-        if (currentFocus && document.body.contains(currentFocus)) {
+        if (!force && currentFocus && document.body.contains(currentFocus)) {
             if (!activeScope || activeScope.contains(currentFocus)) return;
         }
 
@@ -94,7 +145,7 @@ const Navigation = (function() {
             }
 
             let candidate = document.querySelector('#content-container .tab-button.active');
-            if (!candidate) candidate = document.querySelector('#content-container .focusable');
+            if (!candidate) candidate = document.querySelector('#content-container .focusable:not([style*="display: none"])');
 
             if (candidate && candidate.offsetParent !== null) {
                 focus(candidate);
@@ -206,14 +257,62 @@ const Navigation = (function() {
     }
 
     function move(direction) {
-        if (!currentFocus) { scan(); return; }
+        if (!currentFocus || !document.body.contains(currentFocus)) {
+            scan(true);
+            return;
+        }
 
         const rect = currentFocus.getBoundingClientRect();
+        const currentSidebar = currentFocus.closest('#sidebar');
         const currentRail = currentFocus.closest('.rail');
-        const currentSidebar = currentFocus.closest('.sidebar-menu');
         const currentRow = currentFocus.closest('.row-section');
         const isHeader = currentFocus.classList.contains('row-header-content') || currentFocus.closest('.row-header');
 
+        // --- 1. SIDEBAR NAVIGATION ---
+        if (currentSidebar) {
+            const menuItems = Array.from(document.querySelectorAll('#sidebar .menu-item.focusable'));
+            const idx = menuItems.indexOf(currentFocus);
+
+            if (direction === 'Down') {
+                if (idx < menuItems.length - 1) focus(menuItems[idx + 1]);
+                return;
+            }
+            if (direction === 'Up') {
+                if (idx > 0) focus(menuItems[idx - 1]);
+                return;
+            }
+            if (direction === 'Right') {
+                // Move from sidebar into content container
+                const contentItem = document.querySelector('#content-container .tab-button.active') ||
+                                    document.querySelector('#content-container .focusable:not([style*="display: none"])');
+                if (contentItem) {
+                    focus(contentItem);
+                    return;
+                }
+            }
+            if (direction === 'Left') {
+                return; // Already at left edge
+            }
+        }
+
+        // --- 2. SELECT ELEMENTS (Gamepad / Remote friendly option switching) ---
+        if (currentFocus.tagName === 'SELECT') {
+            if (direction === 'Left') {
+                if (currentFocus.selectedIndex > 0) {
+                    currentFocus.selectedIndex--;
+                    currentFocus.dispatchEvent(new Event('change'));
+                    return;
+                }
+            } else if (direction === 'Right') {
+                if (currentFocus.selectedIndex < currentFocus.options.length - 1) {
+                    currentFocus.selectedIndex++;
+                    currentFocus.dispatchEvent(new Event('change'));
+                    return;
+                }
+            }
+        }
+
+        // --- 3. HORIZONTAL RAILS (Matches on Home) ---
         if (direction === 'Left' || direction === 'Right') {
             if (currentRail) {
                 const siblings = Array.from(currentRail.querySelectorAll(focusableSelector));
@@ -228,7 +327,7 @@ const Navigation = (function() {
                     if (idx > 0) {
                         focus(siblings[idx - 1]);
                     } else {
-                        // Move to sidebar from first item
+                        // Move to active sidebar item from first card
                         const sidebarItem = document.querySelector('#sidebar .active') || document.querySelector('#sidebar .focusable');
                         if (sidebarItem) focus(sidebarItem);
                     }
@@ -237,6 +336,7 @@ const Navigation = (function() {
             }
         }
 
+        // --- 4. VERTICAL ROWS & SECTIONS ---
         if (direction === 'Up' || direction === 'Down') {
             if (currentRow) {
                 const allRows = Array.from(document.querySelectorAll('.row-section'));
@@ -294,21 +394,11 @@ const Navigation = (function() {
             if (tryAccountGridMove(direction, rect)) return;
         }
 
-        // Generic spatial navigation
-        let root = activeScope || document.body;
-        if (currentSidebar) root = document.querySelector('#sidebar');
-
-        if (activeScope && (direction === 'Down' || direction === 'Up')) {
-            const allInScope = Array.from(activeScope.querySelectorAll(focusableSelector));
-            const currentIdx = allInScope.indexOf(currentFocus);
-            if (currentIdx !== -1) {
-                if (direction === 'Down' && currentIdx < allInScope.length - 1) { focus(allInScope[currentIdx + 1]); return; }
-                if (direction === 'Up' && currentIdx > 0) { focus(allInScope[currentIdx - 1]); return; }
-            }
-        }
+        // --- 5. GENERIC 2D SPATIAL NAVIGATION ---
+        let root = activeScope || document.getElementById('content-container') || document.body;
 
         const candidates = Array.from(root.querySelectorAll(focusableSelector)).filter(el =>
-            el !== currentFocus && el.offsetParent !== null
+            el !== currentFocus && el.offsetParent !== null && !el.closest('#sidebar')
         );
 
         let bestCandidate = null;
@@ -331,9 +421,9 @@ const Navigation = (function() {
 
             let dist = Infinity;
             if (direction === 'Left' || direction === 'Right') {
-                dist = Math.abs((direction === 'Right' ? r.left : r.right) - (direction === 'Right' ? rect.right : rect.left)) + (yDist * 3);
+                dist = Math.abs((direction === 'Right' ? r.left : r.right) - (direction === 'Right' ? rect.right : rect.left)) + (yDist * 2);
             } else {
-                dist = Math.abs((direction === 'Down' ? r.top : r.bottom) - (direction === 'Down' ? rect.bottom : rect.top)) + (xDist * 3);
+                dist = Math.abs((direction === 'Down' ? r.top : r.bottom) - (direction === 'Down' ? rect.bottom : rect.top)) + (xDist * 2);
             }
 
             if (dist < minDistance) {
@@ -342,11 +432,19 @@ const Navigation = (function() {
             }
         }
 
-        if (bestCandidate && bestCandidate.closest('#sidebar')) {
-            if (currentFocus && currentFocus.closest('.page-container')) return;
+        if (bestCandidate) {
+            focus(bestCandidate);
+            return;
         }
 
-        if (bestCandidate) focus(bestCandidate);
+        // If moving Left and nothing found in content -> move to active sidebar item
+        if (direction === 'Left' && !currentSidebar) {
+            const sidebarItem = document.querySelector('#sidebar .active') || document.querySelector('#sidebar .focusable');
+            if (sidebarItem) {
+                focus(sidebarItem);
+                return;
+            }
+        }
     }
 
     /**
@@ -396,6 +494,11 @@ const Navigation = (function() {
         // Confirmation / Activation (OK / Gamepad B / Enter)
         if (action === 'ok' || action === 'confirm') {
             if (current) {
+                if (current.tagName === 'SELECT') {
+                    current.selectedIndex = (current.selectedIndex + 1) % current.options.length;
+                    current.dispatchEvent(new Event('change'));
+                    return;
+                }
                 current.click();
             }
             return;
@@ -406,6 +509,8 @@ const Navigation = (function() {
             if (activeScope) {
                 const closeBtn = activeScope.querySelector('.modal-close');
                 if (closeBtn) closeBtn.click();
+            } else if (window.AppRouter && typeof window.AppRouter.back === 'function') {
+                window.AppRouter.back();
             } else {
                 document.dispatchEvent(new CustomEvent('nav-back'));
             }

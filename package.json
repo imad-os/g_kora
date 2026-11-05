@@ -7,7 +7,7 @@
     "dev": "vite --port 3000 --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --port 3000 --host 0.0.0.0",
-    "lint": "node --check js/services.js js/navigation.js js/main.js js/service_football.js widgets/scores.js services/notify.js"
+    "lint": "node --check js/services.js js/navigation.js js/main.js js/router.js js/service_football.js widgets/scores.js services/notify.js"
   },
   "devDependencies": {
     "vite": "^6.2.0"

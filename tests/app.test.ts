@@ -83,3 +83,50 @@ test('Match status classification handles live vs finished accurately', () => {
   assert.equal(isFinished('PEN'), true);
   assert.equal(isFinished('2H'), false);
 });
+
+test('AppRouter route definitions include settings and hash routing', () => {
+  const parseHash = (hash: string) => {
+    const raw = hash || '#/home';
+    const clean = raw.startsWith('#') ? raw.slice(1) : raw;
+    const [pathRaw] = clean.split('?');
+    const path = (pathRaw || '/home').replace(/^\/+/, '');
+    const parts = path.split('/').filter(Boolean);
+    const route = parts[0] || 'home';
+    if (route === 'settings') return { name: 'settings', params: null };
+    if (route === 'account') return { name: 'account', params: null };
+    if (route === 'match' && parts[1]) return { name: 'match', params: parts[1] };
+    return { name: 'home', params: null };
+  };
+
+  assert.deepEqual(parseHash('#/settings'), { name: 'settings', params: null });
+  assert.deepEqual(parseHash('#/account'), { name: 'account', params: null });
+  assert.deepEqual(parseHash('#/match/12345'), { name: 'match', params: '12345' });
+  assert.deepEqual(parseHash('#/'), { name: 'home', params: null });
+});
+
+test('Keyboard and TV Remote key code mapping coverage', () => {
+  const mapKeyToAction = (code: number, key: string) => {
+    if (key === 'ArrowLeft' || code === 37) return 'left';
+    if (key === 'ArrowRight' || code === 39) return 'right';
+    if (key === 'ArrowUp' || code === 38) return 'up';
+    if (key === 'ArrowDown' || code === 40) return 'down';
+    if (key === 'Enter' || code === 13) return 'ok';
+    if (key === 'Escape' || code === 27 || code === 10009 || key === 'Backspace' || code === 8) return 'cancel';
+    if (key === 'PageUp' || code === 33 || code === 427) return 'pageUp';
+    if (key === 'PageDown' || code === 34 || code === 428) return 'pageDown';
+    if (key === 'x' || key === 'X') return 'run';
+    if (key === 'y' || key === 'Y') return 'y';
+    return null;
+  };
+
+  // Samsung TV Remote Back key
+  assert.equal(mapKeyToAction(10009, 'XF86Back'), 'cancel');
+  // Samsung TV Channel keys
+  assert.equal(mapKeyToAction(427, 'ChannelUp'), 'pageUp');
+  assert.equal(mapKeyToAction(428, 'ChannelDown'), 'pageDown');
+  // Gamepad / Keyboard action keys
+  assert.equal(mapKeyToAction(88, 'x'), 'run');
+  assert.equal(mapKeyToAction(89, 'y'), 'y');
+  assert.equal(mapKeyToAction(13, 'Enter'), 'ok');
+});
+

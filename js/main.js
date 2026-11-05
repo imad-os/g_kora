@@ -413,10 +413,24 @@
         if (navCalendar) navCalendar.onclick = (e) => { e.preventDefault(); showModal('date-modal'); };
 
         const navAuth = document.getElementById('nav-auth');
-        if (navAuth) navAuth.onclick = (e) => { e.preventDefault(); window.AppRouter.go('account'); };
+        if (navAuth) navAuth.onclick = (e) => { 
+            e.preventDefault(); 
+            window.AppRouter.go('account'); 
+            setTimeout(() => {
+                const first = document.querySelector('#content-container .focusable:not([style*="display: none"])');
+                if (first && window.Navigation) window.Navigation.focus(first);
+            }, 80);
+        };
 
         const navSettings = document.getElementById('nav-settings');
-        if (navSettings) navSettings.onclick = (e) => { e.preventDefault(); window.AppRouter.go('settings'); };
+        if (navSettings) navSettings.onclick = (e) => { 
+            e.preventDefault(); 
+            window.AppRouter.go('settings'); 
+            setTimeout(() => {
+                const first = document.querySelector('#content-container .focusable:not([style*="display: none"])');
+                if (first && window.Navigation) window.Navigation.focus(first);
+            }, 80);
+        };
 
         const navHome = document.getElementById('nav-home');
         if (navHome) navHome.onclick = (e) => { 

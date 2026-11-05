@@ -119,7 +119,7 @@
                     container.innerHTML = htmlParts.join('');
                 }
                 if(document.getElementById('btn-load-all')) document.getElementById('btn-load-all').onclick = () => { window.AppState.matchesCache = null; window.AppState.homePageLoadAllState = true; window.AppViews.renderHome(container); };
-                Navigation.scan();
+                Navigation.scan(true);
                 Utils.ImageLoader.scan(container);
             } catch (e) { container.innerHTML = "Error processing matches."; console.error(e); }
         },
@@ -206,7 +206,7 @@
                         <div id="st" class="tab-content ${activeTabId === 'st' ? 'active' : ''}">${Components.renderStats(stats)}</div>
                         <div id="h2h" class="tab-content ${activeTabId === 'h2h' ? 'active' : ''}">${Components.renderH2H(h2hData, teams.home, teams.away)}</div>
                     </div>`;
-                Navigation.scan();
+                Navigation.scan(true);
                 Utils.ImageLoader.scan(container);
             } catch(e) { 
                 container.innerHTML = `<div class="error-message">Error: ${e.message}</div>`; 
@@ -276,7 +276,7 @@
                         <div id="l-scr" class="tab-content ${activeTabId === 'l-scr' ? 'active' : ''}">${Components.renderPlayerStats(scorers, 'goals')}</div>
                         <div id="l-ast" class="tab-content ${activeTabId === 'l-ast' ? 'active' : ''}">${Components.renderPlayerStats(assists, 'assists')}</div>
                     </div>`;
-                Navigation.scan();
+                Navigation.scan(true);
                 Utils.ImageLoader.scan(container);
             } catch(e) { 
                 container.innerHTML = `<div class="error-message">Error: ${e.message}</div>`; 
@@ -398,7 +398,7 @@
             const logoutBtn = document.getElementById('btn-account-logout');
             if (logoutBtn) logoutBtn.onclick = () => window.AppServices.auth.signOut();
 
-            Navigation.scan();
+            Navigation.scan(true);
             Utils.ImageLoader.scan(container);
         },
 
@@ -681,7 +681,7 @@
                 };
             }
 
-            Navigation.scan();
+            Navigation.scan(true);
         }
 
     };
@@ -712,6 +712,7 @@
                 return `#/league/${encode(lid)}/${encode(season)}`;
             }
             if (name === 'account') return '#/account';
+            if (name === 'settings') return '#/settings';
             if (name === 'fav-add') {
                 if (params && typeof params === 'object') {
                     Object.keys(params).forEach((k) => {
@@ -742,6 +743,7 @@
                 return { name: 'league', params: { id, season } };
             }
             if (route === 'account') return { name: 'account', params: null };
+            if (route === 'settings') return { name: 'settings', params: null };
             if (route === 'fav-add') {
                 return {
                     name: 'fav-add',
@@ -804,6 +806,13 @@
             }
             this.current = { name, params };
             this.render();
+            // Automatically focus the first focusable element in the new view
+            setTimeout(() => {
+                const target = document.querySelector('#content-container .focusable');
+                if (target && window.Navigation) {
+                    window.Navigation.focus(target);
+                }
+            }, 60);
         },
 
         back: function() {
@@ -815,6 +824,10 @@
             if (this.stack.length > 0) {
                 this.current = this.stack.pop();
                 this.render();
+                setTimeout(() => {
+                    const target = document.querySelector('#content-container .focusable');
+                    if (target && window.Navigation) window.Navigation.focus(target);
+                }, 60);
             } else if (this.current.name !== 'home') {
                 this.go('home');
             } else {
