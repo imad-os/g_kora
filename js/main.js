@@ -548,6 +548,20 @@
                 }
             }
         });
+
+        // Controller first: listen to all gamepad buttons via MyPC.gamepad (API 9)
+        if (MyPC.gamepad && typeof MyPC.gamepad.on === 'function') {
+            MyPC.gamepad.on('button', function(index, pressed, value, dev, name) {
+                if (!pressed) return;
+                if (window.ButtonMapper && typeof window.ButtonMapper.isListening === 'function' && window.ButtonMapper.isListening()) {
+                    window.ButtonMapper.recordInput(name || ('Button' + index), dev);
+                    return;
+                }
+                if (window.Navigation && typeof window.Navigation.handleAction === 'function') {
+                    window.Navigation.handleAction(name, pressed, false, dev);
+                }
+            });
+        }
     } else {
         // Fallback if SDK script failed or running in non-SDK preview
         document.addEventListener('DOMContentLoaded', () => {

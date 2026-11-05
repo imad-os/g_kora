@@ -5,6 +5,139 @@
     const Components = window.AppComponents;
     const Utils = window.Utils;
 
+    window.ButtonMapper = {
+        listeningSlot: null,
+        timer: null,
+        countdown: null,
+        remainingSecs: 5,
+
+        isListening: function() {
+            return this.listeningSlot !== null;
+        },
+
+        getFriendlyLabel: function(action) {
+            if (!action) return 'Not mapped';
+            const a = String(action).toLowerCase();
+            if (a === 'pageup' || a === 'rb') return 'R Shoulder (RB)';
+            if (a === 'pagedown' || a === 'lb') return 'L Shoulder (LB)';
+            if (a === 'run' || a === 'x') return 'Button X';
+            if (a === 'y') return 'Button Y';
+            if (a === 'confirm' || a === 'ok' || a === 'a') return 'Button A';
+            if (a === 'cancel' || a === 'b') return 'Button B';
+            if (a === 'right') return 'D-pad Right';
+            if (a === 'left') return 'D-pad Left';
+            if (a === 'up') return 'D-pad Up';
+            if (a === 'down') return 'D-pad Down';
+            if (a === 'rt') return 'R Trigger (RT)';
+            if (a === 'lt') return 'L Trigger (LT)';
+            if (a === 'menu' || a === 'start') return 'Menu / Start';
+            if (a === 'select' || a === 'view') return 'Select / View';
+            return action.charAt(0).toUpperCase() + action.slice(1);
+        },
+
+        startListening: function(slotKey) {
+            if (this.listeningSlot) this.cancel();
+
+            this.listeningSlot = slotKey;
+            this.remainingSecs = 5;
+
+            const card = document.getElementById(`btn-map-${slotKey}`);
+            const badge = document.getElementById(`badge-${slotKey}`);
+            if (card) card.classList.add('listening');
+            if (badge) {
+                badge.classList.add('listening-badge');
+                badge.innerHTML = `<span class="listening-pulse">● Listening... <b>${this.remainingSecs}s</b></span>`;
+            }
+
+            if (this.countdown) clearInterval(this.countdown);
+            this.countdown = setInterval(() => {
+                this.remainingSecs--;
+                const b = document.getElementById(`badge-${slotKey}`);
+                if (b && this.remainingSecs > 0) {
+                    b.innerHTML = `<span class="listening-pulse">● Listening... <b>${this.remainingSecs}s</b></span>`;
+                }
+            }, 1000);
+
+            if (this.timer) clearTimeout(this.timer);
+            this.timer = setTimeout(() => {
+                this.cancel(true);
+            }, 5000);
+
+            Helpers.showToast('Press any controller button or key (5s)...', 'info');
+        },
+
+        recordInput: async function(rawAction, dev) {
+            if (!this.listeningSlot) return;
+
+            const slotKey = this.listeningSlot;
+            this.clearTimers();
+            this.listeningSlot = null;
+            this.lastRecordTime = Date.now();
+
+            const card = document.getElementById(`btn-map-${slotKey}`);
+            const badge = document.getElementById(`badge-${slotKey}`);
+            if (card) card.classList.remove('listening');
+            if (badge) badge.classList.remove('listening-badge');
+
+            // Standardize action code
+            let action = rawAction;
+            if (rawAction === 'RB' || rawAction === 'PageUp' || rawAction === 'ChannelUp') action = 'pageUp';
+            else if (rawAction === 'LB' || rawAction === 'PageDown' || rawAction === 'ChannelDown') action = 'pageDown';
+            else if (rawAction === 'X' || rawAction === 'run') action = 'run';
+            else if (rawAction === 'Y' || rawAction === 'y') action = 'y';
+            else if (rawAction === 'ArrowRight' || rawAction === 'right') action = 'right';
+            else if (rawAction === 'ArrowLeft' || rawAction === 'left') action = 'left';
+            else if (rawAction === 'ArrowUp' || rawAction === 'up') action = 'up';
+            else if (rawAction === 'ArrowDown' || rawAction === 'down') action = 'down';
+
+            if (!State.appConfig.buttonMappings) State.appConfig.buttonMappings = {};
+            State.appConfig.buttonMappings[slotKey] = action;
+
+            const friendly = this.getFriendlyLabel(action);
+            if (badge) badge.textContent = friendly;
+
+            const user = State.currentUser || {};
+            await window.AppServices.Storage.saveUserConfig(user.uid || 'player', State.appConfig);
+            Helpers.showToast(`Mapped to ${friendly}`, 'success');
+
+            if (card && window.Navigation) {
+                window.Navigation.focus(card);
+            }
+        },
+
+        cancel: function(isTimeout = false) {
+            if (!this.listeningSlot) return;
+
+            const slotKey = this.listeningSlot;
+            this.clearTimers();
+            this.listeningSlot = null;
+
+            const card = document.getElementById(`btn-map-${slotKey}`);
+            const badge = document.getElementById(`badge-${slotKey}`);
+            if (card) card.classList.remove('listening');
+            if (badge) {
+                badge.classList.remove('listening-badge');
+                const curr = (State.appConfig?.buttonMappings || {})[slotKey];
+                badge.textContent = this.getFriendlyLabel(curr);
+            }
+
+            if (isTimeout) {
+                Helpers.showToast('Mapping timed out (5s expired)', 'info');
+            } else {
+                Helpers.showToast('Mapping cancelled', 'info');
+            }
+
+            if (card && window.Navigation) {
+                window.Navigation.focus(card);
+            }
+        },
+
+        clearTimers: function() {
+            if (this.countdown) { clearInterval(this.countdown); this.countdown = null; }
+            if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+        }
+    };
+
     window.AppViews = {
         renderHome: async (container) => {
             window.AppState.currentMatchId = null;
@@ -444,7 +577,7 @@
 
                     <div class="fav-add-search">
                         <input id="fav-search-input" class="focusable" tabindex="0" type="text"
-                               placeholder="Search ${label}..." autocomplete="off">
+                                placeholder="Search ${label}..." autocomplete="off">
                         <button id="fav-search-btn" class="styled-button focusable" tabindex="0">Search</button>
                     </div>
 
@@ -567,63 +700,48 @@
 
             const user = window.AppServices.State.currentUser || { name: 'Player', email: 'player@mypc.football' };
 
+            const renderSlot = (slotKey, title, desc) => {
+                const action = mappings[slotKey];
+                const label = window.ButtonMapper.getFriendlyLabel(action);
+                return `
+                    <div class="mapping-card focusable" tabindex="0" data-mapping="${slotKey}" id="btn-map-${slotKey}">
+                        <div class="mapping-label-group">
+                            <div class="mapping-title">${title}</div>
+                            <div class="mapping-desc">${desc}</div>
+                        </div>
+                        <div class="mapping-badge-container">
+                            <span class="mapping-badge" id="badge-${slotKey}">${label}</span>
+                        </div>
+                    </div>
+                `;
+            };
+
             container.innerHTML = `
-                <div class="settings-page" style="padding: 2rem 2.5rem; max-width: 950px;">
+                <div class="settings-page">
                     <div class="settings-hero" style="margin-bottom: 2rem;">
                         <h1 style="font-size: 2.2rem; font-weight: 700; color: #f8fafc; margin-bottom: 0.5rem;">Settings</h1>
                         <div style="color: #94a3b8; font-size: 1.1rem;">Controller button mappings, TV user profile & cloud sync</div>
                     </div>
 
                     <section class="settings-section" style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 1.8rem; margin-bottom: 2rem;">
-                        <h2 style="font-size: 1.4rem; font-weight: 600; color: #38bdf8; margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem;">
-                            <i class="ph ph-game-controller"></i> Gamepad Button Mappings
-                        </h2>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
+                            <h2 style="font-size: 1.4rem; font-weight: 600; color: #38bdf8; margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="ph ph-game-controller"></i> Controller Button Mappings
+                            </h2>
+                            <div style="color: #94a3b8; font-size: 0.9rem;">Click or press OK on any action to remap (5s listener)</div>
+                        </div>
                         
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                            <div class="setting-item" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px;">
-                                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #e2e8f0;">Next Day (+)</label>
-                                <div style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.8rem;">Advance date by 1 day</div>
-                                <select id="map-date-next" class="styled-select focusable" tabindex="0" style="width: 100%; padding: 0.7rem; border-radius: 6px; background: #0f172a; color: #fff; border: 1px solid #334155; font-size: 1rem;">
-                                    <option value="pageUp" ${mappings.dateNext === 'pageUp' ? 'selected' : ''}>R Shoulder (Default)</option>
-                                    <option value="right" ${mappings.dateNext === 'right' ? 'selected' : ''}>D-pad Right</option>
-                                    <option value="run" ${mappings.dateNext === 'run' ? 'selected' : ''}>Button X</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-item" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px;">
-                                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #e2e8f0;">Previous Day (-)</label>
-                                <div style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.8rem;">Rewind date by 1 day</div>
-                                <select id="map-date-prev" class="styled-select focusable" tabindex="0" style="width: 100%; padding: 0.7rem; border-radius: 6px; background: #0f172a; color: #fff; border: 1px solid #334155; font-size: 1rem;">
-                                    <option value="pageDown" ${mappings.datePrev === 'pageDown' ? 'selected' : ''}>L Shoulder (Default)</option>
-                                    <option value="left" ${mappings.datePrev === 'left' ? 'selected' : ''}>D-pad Left</option>
-                                    <option value="y" ${mappings.datePrev === 'y' ? 'selected' : ''}>Button Y</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-item" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px;">
-                                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #e2e8f0;">Toggle Favorite (⭐)</label>
-                                <div style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.8rem;">Star/unstar teams or leagues</div>
-                                <select id="map-fav" class="styled-select focusable" tabindex="0" style="width: 100%; padding: 0.7rem; border-radius: 6px; background: #0f172a; color: #fff; border: 1px solid #334155; font-size: 1rem;">
-                                    <option value="y" ${mappings.favToggle === 'y' ? 'selected' : ''}>Button Y (Default)</option>
-                                    <option value="run" ${mappings.favToggle === 'run' ? 'selected' : ''}>Button X</option>
-                                    <option value="pageDown" ${mappings.favToggle === 'pageDown' ? 'selected' : ''}>L Shoulder</option>
-                                </select>
-                            </div>
-
-                            <div class="setting-item" style="background: rgba(15, 23, 42, 0.6); padding: 1.2rem; border-radius: 8px;">
-                                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #e2e8f0;">Track Match (🔴 Live Alert)</label>
-                                <div style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 0.8rem;">Track match for goal notifications</div>
-                                <select id="map-track" class="styled-select focusable" tabindex="0" style="width: 100%; padding: 0.7rem; border-radius: 6px; background: #0f172a; color: #fff; border: 1px solid #334155; font-size: 1rem;">
-                                    <option value="run" ${mappings.trackToggle === 'run' ? 'selected' : ''}>Button X (Default)</option>
-                                    <option value="y" ${mappings.trackToggle === 'y' ? 'selected' : ''}>Button Y</option>
-                                    <option value="pageUp" ${mappings.trackToggle === 'pageUp' ? 'selected' : ''}>R Shoulder</option>
-                                </select>
-                            </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;">
+                            ${renderSlot('dateNext', 'Next Day (+)', 'Advance match date by 1 day')}
+                            ${renderSlot('datePrev', 'Previous Day (-)', 'Rewind match date by 1 day')}
+                            ${renderSlot('favToggle', 'Toggle Favorite (⭐)', 'Star or unstar team/league in view')}
+                            ${renderSlot('trackToggle', 'Track Match (🔴 Live Alert)', 'Track match for goal & FT notifications')}
                         </div>
 
                         <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
-                            <button id="btn-save-mappings" class="styled-button focusable" tabindex="0">Save Mappings</button>
-                            <button id="btn-reset-mappings" class="styled-button focusable" style="background: #334155;" tabindex="0">Reset to Defaults</button>
+                            <button id="btn-reset-mappings" class="styled-button focusable" style="background: #334155;" tabindex="0">
+                                <i class="ph ph-arrow-counter-clockwise"></i> Reset to Defaults
+                            </button>
                         </div>
                     </section>
 
@@ -644,24 +762,15 @@
                 </div>
             `;
 
-            const btnSave = document.getElementById('btn-save-mappings');
-            if (btnSave) {
-                btnSave.onclick = async () => {
-                    const next = document.getElementById('map-date-next').value;
-                    const prev = document.getElementById('map-date-prev').value;
-                    const fav = document.getElementById('map-fav').value;
-                    const track = document.getElementById('map-track').value;
-
-                    window.AppServices.State.appConfig.buttonMappings = {
-                        dateNext: next,
-                        datePrev: prev,
-                        favToggle: fav,
-                        trackToggle: track
+            // Attach click listeners to mapping cards
+            ['dateNext', 'datePrev', 'favToggle', 'trackToggle'].forEach(slotKey => {
+                const card = document.getElementById(`btn-map-${slotKey}`);
+                if (card) {
+                    card.onclick = () => {
+                        window.ButtonMapper.startListening(slotKey);
                     };
-                    await window.AppServices.Storage.saveUserConfig(user.uid, window.AppServices.State.appConfig);
-                    window.AppServices.Helpers.showToast('Button mappings saved', 'success');
-                };
-            }
+                }
+            });
 
             const btnReset = document.getElementById('btn-reset-mappings');
             if (btnReset) {
@@ -672,12 +781,12 @@
                         favToggle: 'y',
                         trackToggle: 'run'
                     };
-                    document.getElementById('map-date-next').value = 'pageUp';
-                    document.getElementById('map-date-prev').value = 'pageDown';
-                    document.getElementById('map-fav').value = 'y';
-                    document.getElementById('map-track').value = 'run';
+                    ['dateNext', 'datePrev', 'favToggle', 'trackToggle'].forEach(slotKey => {
+                        const b = document.getElementById(`badge-${slotKey}`);
+                        if (b) b.textContent = window.ButtonMapper.getFriendlyLabel(window.AppServices.State.appConfig.buttonMappings[slotKey]);
+                    });
                     await window.AppServices.Storage.saveUserConfig(user.uid, window.AppServices.State.appConfig);
-                    window.AppServices.Helpers.showToast('Reset to default mappings', 'info');
+                    window.AppServices.Helpers.showToast('Reset to default button mappings', 'info');
                 };
             }
 

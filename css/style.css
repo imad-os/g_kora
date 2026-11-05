@@ -149,9 +149,9 @@ body {
     text-decoration: none;
 }
 .row-header-content.focused {
-    background: rgba(56, 189, 248, 0.15);
+    background: rgba(255, 255, 255, 0.15);
     color: #ffffff;
-    border-color: #38bdf8 !important;
+    border-color: #ffffff !important;
 }
 
 .clickable { cursor: pointer; }
@@ -217,9 +217,9 @@ body {
 
 .match-card.focused {
     transform: scale(var(--focus-scale));
-    border-color: #38bdf8 !important;
+    border-color: #ffffff !important;
     z-index: 10;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.4); 
+    box-shadow: 0 4px 20px rgba(0,0,0,0.8); 
     background: #252525;
 }
 
@@ -470,7 +470,7 @@ body {
     will-change: transform;
 }
 .alert-toast.visible { transform: translateX(0); }
-.alert-toast.focused { background: #252525; transform: scale(1.05) translateX(0); border-color: #38bdf8; }
+.alert-toast.focused { background: #252525; transform: scale(1.05) translateX(0); border-color: #ffffff; }
 
 .alert-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 1.1em; border-bottom: 1px solid #333; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
 .alert-event-type { color: var(--bg-focus); text-transform: uppercase; }
@@ -1295,9 +1295,9 @@ body {
 }
 .fav-icon-btn i { font-size: 2em; }
 
-.fav-icon-btn.focused { transform: scale(1.12); border-color: #38bdf8; background: #2a2a2a; }
+.fav-icon-btn.focused { transform: scale(1.12); border-color: #ffffff; background: #2a2a2a; }
 .fav-icon-btn.fav-remove-btn.focused { background: var(--bg-focus); border-color: var(--bg-focus); }
-.fav-icon-btn.fav-player-btn.focused { background: #38bdf8; color: #000; border-color: #38bdf8; }
+.fav-icon-btn.fav-player-btn.focused { background: #ffffff; color: #000; border-color: #ffffff; }
 
 /* Make the section Add button icon-only on TV */
 .add-fav-btn {
@@ -1320,7 +1320,7 @@ body {
 
 .fav-add-search { display:flex; gap: 1rem; align-items:center; margin: 1.5rem 0 2rem; }
 #fav-search-input { flex: 1; padding: 1rem 1.2rem; background: #111; border: 2px solid #333; color:#fff; border-radius: 10px; font-size: 1.1em; }
-#fav-search-input.focused { border-color: #38bdf8; }
+#fav-search-input.focused { border-color: #ffffff; }
 
 .fav-add-results { min-height: 50vh; }
 .fav-add-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; }
@@ -1331,8 +1331,8 @@ body {
 .fav-add-card-name { font-size: 1.25em; font-weight: 700; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
 .fav-add-card-sub { margin-top: 0.2rem; color: var(--text-muted); font-size: 1em; white-space: nowrap; overflow:hidden; text-overflow: ellipsis; }
 .fav-add-card-action { font-size: 2em; color: var(--text-muted); }
-.fav-add-card.focused { border-color: #38bdf8; background: #252525; transform: scale(1.03); }
-.fav-add-card.focused .fav-add-card-action { color: #38bdf8; }
+.fav-add-card.focused { border-color: #ffffff; background: #252525; transform: scale(1.03); }
+.fav-add-card.focused .fav-add-card-action { color: #ffffff; }
 
 /* --- Focus ring animation for favorite toggle (⭐/heart) --- */
 .fav-toggle { position: relative; }
@@ -1340,7 +1340,7 @@ body {
     content: '';
     position: absolute;
     inset: -6px;
-    border: 2px solid #38bdf8;
+    border: 2px solid #ffffff;
     border-radius: 999px;
     animation: favRing 0.9s ease-in-out infinite;
 }
@@ -1423,8 +1423,8 @@ body {
 .kb-match.focused {
     transform: scale(1.05);
     background: #222;
-    border-color: #38bdf8;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.4);
+    border-color: #ffffff;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
     z-index: 20;
 }
 
@@ -1550,14 +1550,9 @@ body {
 .hud-btn-y { background: #eab308; color: #1e293b; }
 .hud-btn-shoulder { border-radius: 4px; background: #475569; }
 
-/* 10-foot TV Focus Enhancements - Single crisp blue indicator */
+/* 10-foot TV Focus Enhancements - Clean single focus, no double blue outline */
 .focusable.focused {
-    outline: 3px solid #38bdf8 !important;
-    outline-offset: 0 !important;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5) !important;
-    transform: scale(1.025) !important;
-    transition: transform 0.12s ease, box-shadow 0.12s ease !important;
-    z-index: 10 !important;
+    outline: none !important;
 }
 
 /* User profile avatar in sidebar */
@@ -1597,10 +1592,91 @@ body {
 
 .styled-select:focus,
 .styled-select.focused {
-    outline: 3px solid #38bdf8 !important;
-    outline-offset: 0 !important;
-    border-color: #38bdf8 !important;
+    outline: none !important;
+    border-color: #ffffff !important;
     background: #1e293b !important;
-    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5) !important;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.3) !important;
 }
+
+/* Button Mapping Cards & 5-Second Listening Mode */
+.mapping-card {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 1.2rem 1.4rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.mapping-card:hover {
+    background: rgba(30, 41, 59, 0.8);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.mapping-card.focused {
+    outline: none !important;
+    border-color: #ffffff !important;
+    background: rgba(30, 41, 59, 0.95) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6) !important;
+    transform: scale(1.02);
+}
+
+.mapping-card.listening {
+    border-color: #f59e0b !important;
+    outline: 3px solid #f59e0b !important;
+    background: rgba(45, 26, 10, 0.95) !important;
+    box-shadow: 0 0 22px rgba(245, 158, 11, 0.6) !important;
+    transform: scale(1.025);
+}
+
+.mapping-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #f8fafc;
+    margin-bottom: 0.25rem;
+}
+
+.mapping-desc {
+    color: #94a3b8;
+    font-size: 0.88rem;
+}
+
+.mapping-badge {
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #38bdf8;
+    padding: 0.55rem 1.1rem;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    min-width: 150px;
+    text-align: center;
+    display: inline-block;
+    transition: all 0.2s ease;
+}
+
+.mapping-badge.listening-badge {
+    background: rgba(245, 158, 11, 0.2);
+    border-color: #f59e0b;
+    color: #fbbf24;
+}
+
+.listening-pulse {
+    color: #fbbf24;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    animation: pulse-glow 0.8s infinite alternate;
+}
+
+@keyframes pulse-glow {
+    from { opacity: 0.6; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1.02); }
+}
+
 

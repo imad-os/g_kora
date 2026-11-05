@@ -130,3 +130,76 @@ test('Keyboard and TV Remote key code mapping coverage', () => {
   assert.equal(mapKeyToAction(13, 'Enter'), 'ok');
 });
 
+test('Action de-duplication suppresses dual SDK and DOM bridge key events', () => {
+  const lastActionTimestamps: Record<string, number> = {};
+  const executed: string[] = [];
+
+  function simulateHandleAction(rawAction: string, pressed: boolean, repeat: boolean, nowMs: number) {
+    if (!pressed) return false;
+    let action = rawAction;
+    if (action === 'confirm' || action === 'jump') action = 'ok';
+    if (action === 'b') action = 'cancel';
+
+    const minInterval = (action === 'ok') ? 220 : ((action === 'cancel' || action === 'menu') ? 200 : 110);
+    if (!repeat) {
+      if (nowMs - (lastActionTimestamps[action] || 0) < minInterval) {
+        return false;
+      }
+      lastActionTimestamps[action] = nowMs;
+    }
+    executed.push(action);
+    return true;
+  }
+
+  // 1. Enter key: DOM fires 'ok', MyPC fires 'confirm', MyPC fires 'jump' all at t = 1000
+  assert.equal(simulateHandleAction('ok', true, false, 1000), true);
+  assert.equal(simulateHandleAction('confirm', true, false, 1001), false, 'dual confirm should be dropped');
+  assert.equal(simulateHandleAction('jump', true, false, 1002), false, 'dual jump should be dropped');
+  assert.equal(executed.filter(a => a === 'ok').length, 1);
+
+  // 2. Later Enter press after 300ms should succeed
+  assert.equal(simulateHandleAction('ok', true, false, 1300), true);
+  assert.equal(executed.filter(a => a === 'ok').length, 2);
+
+  // 3. Rapid arrow keys from dual listeners at t = 2000 and 2005
+  assert.equal(simulateHandleAction('left', true, false, 2000), true);
+  assert.equal(simulateHandleAction('left', true, false, 2005), false, 'duplicate arrow event should be dropped');
+
+  // 4. Legitimate arrow key after 120ms should succeed
+  assert.equal(simulateHandleAction('left', true, false, 2125), true);
+});
+
+test('ButtonMapper friendly label resolution supports controller and keyboard keys', () => {
+  const getFriendlyLabel = (action: string) => {
+    if (!action) return 'Not mapped';
+    const a = String(action).toLowerCase();
+    if (a === 'pageup' || a === 'rb') return 'R Shoulder (RB)';
+    if (a === 'pagedown' || a === 'lb') return 'L Shoulder (LB)';
+    if (a === 'run' || a === 'x') return 'Button X';
+    if (a === 'y') return 'Button Y';
+    if (a === 'confirm' || a === 'ok' || a === 'a') return 'Button A';
+    if (a === 'cancel' || a === 'b') return 'Button B';
+    if (a === 'right') return 'D-pad Right';
+    if (a === 'left') return 'D-pad Left';
+    if (a === 'up') return 'D-pad Up';
+    if (a === 'down') return 'D-pad Down';
+    if (a === 'rt') return 'R Trigger (RT)';
+    if (a === 'lt') return 'L Trigger (LT)';
+    if (a === 'menu' || a === 'start') return 'Menu / Start';
+    if (a === 'select' || a === 'view') return 'Select / View';
+    return action.charAt(0).toUpperCase() + action.slice(1);
+  };
+
+  assert.equal(getFriendlyLabel('pageUp'), 'R Shoulder (RB)');
+  assert.equal(getFriendlyLabel('RB'), 'R Shoulder (RB)');
+  assert.equal(getFriendlyLabel('pageDown'), 'L Shoulder (LB)');
+  assert.equal(getFriendlyLabel('LB'), 'L Shoulder (LB)');
+  assert.equal(getFriendlyLabel('run'), 'Button X');
+  assert.equal(getFriendlyLabel('X'), 'Button X');
+  assert.equal(getFriendlyLabel('y'), 'Button Y');
+  assert.equal(getFriendlyLabel('ok'), 'Button A');
+  assert.equal(getFriendlyLabel('cancel'), 'Button B');
+  assert.equal(getFriendlyLabel('RT'), 'R Trigger (RT)');
+  assert.equal(getFriendlyLabel('LT'), 'L Trigger (LT)');
+});
+

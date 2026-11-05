@@ -11,11 +11,36 @@ const Navigation = (function() {
     let scrollThrottle = null;
     let scrollHold = { active: false, el: null, dir: 0, raf: 0, lastTs: 0 };
 
-    let lastActionTime = 0;
-    let lastActionKey = '';
+    let lastActionTimestamps = {};
 
     function initKeyboardBridge() {
         function onKey(e, isDown) {
+            // If ButtonMapper is actively listening for a button press, intercept immediately!
+            if (window.ButtonMapper && typeof window.ButtonMapper.isListening === 'function' && window.ButtonMapper.isListening()) {
+                if (!isDown) return;
+                e.preventDefault();
+                e.stopPropagation();
+                const code = e.keyCode || e.which;
+                if (code === 27 || code === 10009) {
+                    window.ButtonMapper.cancel(false);
+                    return;
+                }
+                let mappedKey = e.key;
+                if (code === 33 || code === 427 || e.key === 'PageUp') mappedKey = 'pageUp';
+                else if (code === 34 || code === 428 || e.key === 'PageDown') mappedKey = 'pageDown';
+                else if (e.key === 'x' || e.key === 'X') mappedKey = 'run';
+                else if (e.key === 'y' || e.key === 'Y') mappedKey = 'y';
+                else if (e.key === 'ArrowRight' || code === 39) mappedKey = 'right';
+                else if (e.key === 'ArrowLeft' || code === 37) mappedKey = 'left';
+                else if (e.key === 'ArrowUp' || code === 38) mappedKey = 'up';
+                else if (e.key === 'ArrowDown' || code === 40) mappedKey = 'down';
+                else if (e.key === 'Enter' || code === 13) mappedKey = 'ok';
+                else if (e.key === ' ' || code === 32) mappedKey = 'Space';
+                else if (e.key && e.key.length === 1) mappedKey = e.key.toUpperCase();
+                window.ButtonMapper.recordInput(mappedKey, 'keys');
+                return;
+            }
+
             const tag = e.target && e.target.tagName;
             const isTextInput = (tag === 'INPUT' && !/^(button|checkbox|radio|submit)$/i.test(e.target.type)) || tag === 'TEXTAREA';
             
@@ -41,15 +66,6 @@ const Navigation = (function() {
                     if (!isTextInput || action === 'cancel') {
                         e.preventDefault();
                     }
-                }
-
-                const now = Date.now();
-                if (isDown && now - lastActionTime < 45 && lastActionKey === action) {
-                    return;
-                }
-                if (isDown) {
-                    lastActionTime = now;
-                    lastActionKey = action;
                 }
 
                 handleAction(action, isDown, e.repeat, 'keys');
@@ -448,21 +464,64 @@ const Navigation = (function() {
     }
 
     /**
+     * Helper to match custom button mappings (e.g. pageUp/RB, pageDown/LB, run/X, y)
+     */
+    function matchesMapping(configured, action) {
+        if (!configured || !action) return false;
+        const c = String(configured).toLowerCase();
+        const a = String(action).toLowerCase();
+        if (c === a) return true;
+        if ((c === 'pageup' || c === 'rb') && (a === 'pageup' || a === 'rb')) return true;
+        if ((c === 'pagedown' || c === 'lb') && (a === 'pagedown' || a === 'lb')) return true;
+        if ((c === 'run' || c === 'x') && (a === 'run' || a === 'x')) return true;
+        if (c === 'y' && a === 'y') return true;
+        return false;
+    }
+
+    /**
      * Dispatch MyPC SDK Actions directly into UI navigation
      */
-    function handleAction(action, pressed, repeat, dev) {
+    function handleAction(rawAction, pressed, repeat, dev) {
         if (!pressed) {
-            if (action === 'up' || action === 'down') {
+            if (rawAction === 'up' || rawAction === 'down') {
                 stopScrollHold();
             }
             return;
+        }
+
+        // Intercept if ButtonMapper is actively listening for 5-second button remap!
+        if (window.ButtonMapper && typeof window.ButtonMapper.isListening === 'function' && window.ButtonMapper.isListening()) {
+            window.ButtonMapper.recordInput(rawAction, dev);
+            return;
+        }
+
+        // Suppress trailing input events immediately following a successful button mapping
+        if (window.ButtonMapper && window.ButtonMapper.lastRecordTime && (Date.now() - window.ButtonMapper.lastRecordTime < 400)) {
+            return;
+        }
+
+        // Action normalization across MyPC SDK and DOM bridge
+        let action = rawAction;
+        if (action === 'confirm' || action === 'jump') action = 'ok';
+        if (action === 'b') action = 'cancel';
+
+        // Robust timestamp-based de-duplication
+        // Prevents duplicate event triggers when MyPC standalone and DOM keydown bridge fire simultaneously,
+        // and collapses dual 'confirm' + 'jump' emitted by MyPC for Enter key into a single action.
+        const now = Date.now();
+        const minInterval = (action === 'ok') ? 220 : ((action === 'cancel' || action === 'menu') ? 200 : 110);
+        if (!repeat) {
+            if (now - (lastActionTimestamps[action] || 0) < minInterval) {
+                return;
+            }
+            lastActionTimestamps[action] = now;
         }
 
         const current = currentFocus || document.activeElement;
 
         // Handle full-screen tab modal
         const fsContent = document.querySelector('.tab-content.full-screen-mode');
-        if (fsContent && (action === 'cancel' || action === 'b')) {
+        if (fsContent && (action === 'cancel')) {
             fsContent.classList.remove('full-screen-mode');
             const btn = fsContent.querySelector('.fs-close-btn');
             if (btn) btn.remove();
@@ -491,8 +550,8 @@ const Navigation = (function() {
             return;
         }
 
-        // Confirmation / Activation (OK / Gamepad B / Enter)
-        if (action === 'ok' || action === 'confirm') {
+        // Confirmation / Activation (OK / Gamepad A / Remote OK / Enter)
+        if (action === 'ok') {
             if (current) {
                 if (current.tagName === 'SELECT') {
                     current.selectedIndex = (current.selectedIndex + 1) % current.options.length;
@@ -504,8 +563,8 @@ const Navigation = (function() {
             return;
         }
 
-        // Cancel / Back (Gamepad A / Remote Back / Esc)
-        if (action === 'cancel' || action === 'b') {
+        // Cancel / Back (Gamepad B / Remote Back / Esc)
+        if (action === 'cancel') {
             if (activeScope) {
                 const closeBtn = activeScope.querySelector('.modal-close');
                 if (closeBtn) closeBtn.click();
@@ -525,7 +584,7 @@ const Navigation = (function() {
         };
 
         // Date Navigation: Next Day
-        if (action === mappings.dateNext || (mappings.dateNext === 'pageUp' && action === 'pageUp')) {
+        if (matchesMapping(mappings.dateNext, action)) {
             if (window.AppState) {
                 window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() + 1);
                 window.AppState.matchesCache = null;
@@ -537,7 +596,7 @@ const Navigation = (function() {
         }
 
         // Date Navigation: Prev Day
-        if (action === mappings.datePrev || (mappings.datePrev === 'pageDown' && action === 'pageDown')) {
+        if (matchesMapping(mappings.datePrev, action)) {
             if (window.AppState) {
                 window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() - 1);
                 window.AppState.matchesCache = null;
@@ -549,7 +608,7 @@ const Navigation = (function() {
         }
 
         // Track Match Toggle
-        if (action === mappings.trackToggle || (mappings.trackToggle === 'run' && action === 'run')) {
+        if (matchesMapping(mappings.trackToggle, action)) {
             if (current && current.classList.contains('match-card') && current.dataset.id) {
                 const mid = parseInt(current.dataset.id);
                 if (mid && window.Utils) {
@@ -571,7 +630,7 @@ const Navigation = (function() {
         }
 
         // Favorite Toggle
-        if (action === mappings.favToggle || action === 'y') {
+        if (matchesMapping(mappings.favToggle, action)) {
             if (current && current.classList.contains('fav-toggle')) {
                 current.click();
             } else if (current && current.classList.contains('row-header-content')) {
