@@ -6,7 +6,7 @@
   "type": "app",
   "entry": "index.html",
   "icon": "assets/icon.png",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "config": {
     "refreshSec": 30,
     "allowed_leagues": [

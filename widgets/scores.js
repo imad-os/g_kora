@@ -1,32 +1,100 @@
 // widgets/scores.js
 // My PC Desktop Widget for Football Live
 // Displays today's favorite match (or top live game) with score and status
+
 export default async function (ctx) {
   const lang = ctx.lang || 'en';
   const labels = {
-    en: { favMatch: "Today's Favorite Match", topMatch: "Today's Top Match", noGames: "No matches scheduled today", live: "LIVE", ft: "Full Time" },
-    fr: { favMatch: "Match favori du jour", topMatch: "Match du jour", noGames: "Aucun match aujourd'hui", live: "EN DIRECT", ft: "Terminé" },
-    es: { favMatch: "Partido favorito de hoy", topMatch: "Partido de hoy", noGames: "Sin partidos hoy", live: "EN VIVO", ft: "Final" },
-    ar: { favMatch: "مباراة اليوم المفضلة", topMatch: "أبرز مباريات اليوم", noGames: "لا توجد مباريات اليوم", live: "مباشر", ft: "نهاية المباراة" }
+    en: { favMatch: "Today's Favorite Match", topMatch: "Today's Top Match", noGames: "No favorite match today", live: "LIVE", ft: "Full Time" },
+    fr: { favMatch: "Match favori du jour", topMatch: "Match du jour", noGames: "Aucun match favori aujourd'hui", live: "EN DIRECT", ft: "Terminé" },
+    es: { favMatch: "Partido favorito de hoy", topMatch: "Partido de hoy", noGames: "Sin partido favorito hoy", live: "EN VIVO", ft: "Final" },
+    ar: { favMatch: "مباراة اليوم المفضلة", topMatch: "أبرز مباريات اليوم", noGames: "لا توجد مباريات مفضلة اليوم", live: "مباشر", ft: "نهاية المباراة" }
   };
   const t = labels[lang] || labels.en;
 
-  const today = new Date().toISOString().split('T')[0];
+  // Timezone-safe local date YYYY-MM-DD
+  const nowMs = ctx.now || Date.now();
+  const nowDate = new Date(nowMs);
+  const year = nowDate.getFullYear();
+  const month = String(nowDate.getMonth() + 1).padStart(2, '0');
+  const day = String(nowDate.getDate()).padStart(2, '0');
+  const today = `${year}-${month}-${day}`;
+
   const appConfig = ctx.config || {};
-  const favTeams = new Set((appConfig.favorite_teams || [
+  const settings = ctx.settings || {};
+
+  // Extract all configured favorite teams across current & legacy keys + widget settings
+  const rawFavTeams = [
+    ...(appConfig.favorite_teams || []),
+    ...(appConfig.favourit_teams || []),
+    ...(appConfig.favourite_teams || []),
+    // Top world clubs in default list
     { id: 85, name: "Paris Saint Germain" },
     { id: 50, name: "Manchester City" },
     { id: 541, name: "Real Madrid" },
     { id: 529, name: "Barcelona" },
+    { id: 489, name: "AC Milan" },
+    { id: 496, name: "Juventus" },
+    { id: 505, name: "Inter Milan" },
+    { id: 42, name: "Arsenal" },
+    { id: 40, name: "Liverpool" },
+    { id: 33, name: "Manchester United" },
+    { id: 157, name: "Bayern Munich" },
+    { id: 165, name: "Borussia Dortmund" },
+    { id: 530, name: "Atletico Madrid" },
+    { id: 49, name: "Chelsea" },
+    { id: 194, name: "Ajax" },
+    { id: 489, name: "AC Milan" },
     { id: 23, name: "Morocco" }
-  ]).map(x => x.id));
-  
-  const favLeagues = new Set((appConfig.favorite_leagues || [
-    { id: 39 }, { id: 140 }, { id: 2 }
-  ]).map(x => x.id));
+  ];
+
+  const favTeamIds = new Set(rawFavTeams.map(x => Number(x && x.id)).filter(Boolean));
+  const favTeamNames = rawFavTeams.map(x => String(x && x.name || '').toLowerCase().trim()).filter(Boolean);
+
+  // If user typed a custom favorite team in Widget Settings (Control Panel > Widgets)
+  const customTeam = String(settings.team || '').toLowerCase().trim();
+  if (customTeam) {
+    if (/^\d+$/.test(customTeam)) favTeamIds.add(Number(customTeam));
+    else favTeamNames.unshift(customTeam);
+  }
+
+  // Favorite leagues: ID & Name
+  const rawFavLeagues = [
+    ...(appConfig.favorite_leagues || []),
+    ...(appConfig.favourite_leagues || []),
+    { id: 2, name: "UEFA Champions League" },
+    { id: 3, name: "UEFA Europa League" },
+    { id: 848, name: "UEFA Europa Conference League" },
+    { id: 39, name: "Premier League" },
+    { id: 140, name: "La Liga" },
+    { id: 135, name: "Serie A" },
+    { id: 78, name: "Bundesliga" },
+    { id: 61, name: "Ligue 1" }
+  ];
+
+  const favLeagueIds = new Set(rawFavLeagues.map(l => Number(l && l.id)).filter(Boolean));
+  const favLeagueNames = rawFavLeagues.map(l => String(l && l.name || '').toLowerCase().trim()).filter(Boolean);
+
+  function isTeamFavorite(team) {
+    if (!team) return false;
+    const tid = Number(team.id);
+    if (tid && favTeamIds.has(tid)) return true;
+    const tname = String(team.name || '').toLowerCase();
+    if (favTeamNames.some(fn => fn && (tname.includes(fn) || fn.includes(tname)))) return true;
+    return false;
+  }
+
+  function isLeagueFavorite(league) {
+    if (!league) return false;
+    const lid = Number(league.id);
+    if (lid && favLeagueIds.has(lid)) return true;
+    const lname = String(league.name || '').toLowerCase();
+    if (favLeagueNames.some(fn => fn && (lname.includes(fn) || fn.includes(lname)))) return true;
+    return false;
+  }
 
   let chosenMatch = null;
-  let isFav = false;
+  let isFavTeam = false;
 
   try {
     const res = await ctx.fetch('https://api-football-v1.p.rapidapi.com/v3/fixtures?date=' + today, {
@@ -41,45 +109,44 @@ export default async function (ctx) {
       const data = await res.json();
       const list = data.response || [];
 
-      // 1. Look for match involving a favorite team
-      for (const m of list) {
-        if (favTeams.has(m.teams?.home?.id) || favTeams.has(m.teams?.away?.id)) {
-          chosenMatch = m;
-          isFav = true;
-          break;
+      // 1. Gather all matches involving a favorite team
+      const teamFavMatches = list.filter(m => isTeamFavorite(m.teams?.home) || isTeamFavorite(m.teams?.away));
+      if (teamFavMatches.length > 0) {
+        // Prioritize: Live first, then Scheduled (NS), then Finished (FT)
+        const liveFav = teamFavMatches.find(m => ['1H','HT','2H','ET','P','BT'].includes(m.fixture?.status?.short));
+        chosenMatch = liveFav || teamFavMatches[0];
+        isFavTeam = true;
+      }
+
+      // 2. If no favorite team plays today, look for matches in favorite leagues
+      if (!chosenMatch) {
+        const leagueFavMatches = list.filter(m => isLeagueFavorite(m.league));
+        if (leagueFavMatches.length > 0) {
+          const liveLeague = leagueFavMatches.find(m => ['1H','HT','2H','ET','P','BT'].includes(m.fixture?.status?.short));
+          chosenMatch = liveLeague || leagueFavMatches[0];
         }
       }
 
-      // 2. If none, look for a live match in a favorite league
-      if (!chosenMatch) {
-        const liveFavLeague = list.find(m => favLeagues.has(m.league?.id) && ['1H','HT','2H','ET','P'].includes(m.fixture?.status?.short));
-        if (liveFavLeague) chosenMatch = liveFavLeague;
-      }
-
-      // 3. If none, look for any live match
-      if (!chosenMatch) {
-        const anyLive = list.find(m => ['1H','HT','2H','ET','P'].includes(m.fixture?.status?.short));
+      // 3. Fallback: Only show general top live match if user allowed non-favorite fallback
+      if (!chosenMatch && settings.only_favs === false) {
+        const anyLive = list.find(m => ['1H','HT','2H','ET','P','BT'].includes(m.fixture?.status?.short));
         if (anyLive) chosenMatch = anyLive;
-      }
-
-      // 4. Fallback to first favorite league match or first scheduled match
-      if (!chosenMatch && list.length > 0) {
-        chosenMatch = list.find(m => favLeagues.has(m.league?.id)) || list[0];
       }
     }
   } catch (err) {
     // Graceful fallback on network timeout
   }
 
+  // If no match related to the user is found today
   if (!chosenMatch) {
     return {
       view: {
         title: "Football Live",
-        icon: '⚽',
-        big: "0 Matches",
+        icon: '⭐',
+        big: "No Fav Match",
         sub: t.noGames,
-        text: "Open Football Live to view calendars and standings",
-        accent: '#38bdf8',
+        text: "None of your favorite teams or leagues play today",
+        accent: '#94a3b8',
         link: 'home'
       },
       state: { lastCheck: Date.now() }
@@ -110,7 +177,7 @@ export default async function (ctx) {
     accentColor = '#eab308'; // Amber for finished
   }
 
-  const titleText = isFav ? `⭐ ${t.favMatch}` : t.topMatch;
+  const titleText = isFavTeam ? `⭐ ${t.favMatch}` : t.topMatch;
   const matchDesc = `${home} vs ${away}`;
 
   return {
