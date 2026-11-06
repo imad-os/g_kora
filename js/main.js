@@ -352,7 +352,7 @@
                 return;
             }
 
-            // 5. League Favorite star toggle
+            // 5. League Favorite heart toggle
             const favBtn = target.closest('.fav-toggle');
             if (favBtn) {
                 e.preventDefault();
@@ -364,10 +364,7 @@
                 const res = await FavoritesService.toggle(type, { id, name, logo });
                 const active = Boolean(res && res.active);
                 favBtn.classList.toggle('active', active);
-                const glyph = favBtn.querySelector('.star-glyph');
-                if (glyph) glyph.textContent = active ? '★' : '☆';
-                else favBtn.textContent = active ? '★ Favorited League' : '☆ Favorite League';
-                Helpers.showToast(active ? `★ Added ${name} to Favorites` : `Removed ${name} from Favorites`, active ? 'success' : 'info');
+                Helpers.showToast(active ? `Added ${name} to Favorites` : `Removed ${name} from Favorites`, active ? 'success' : 'info');
                 return;
             }
 
@@ -379,12 +376,12 @@
                     if (Utils.isTracked(mid)) {
                         Utils.removeTracked(mid);
                         tabBtn.classList.remove('track-active');
-                        tabBtn.textContent = 'Track Match';
+                        tabBtn.textContent = 'Track';
                         Helpers.showToast('Stopped tracking match alerts', 'info');
                     } else {
                         Utils.addTracked(mid);
                         tabBtn.classList.add('track-active');
-                        tabBtn.textContent = '● Tracking Live Alerts';
+                        tabBtn.textContent = 'Track';
                         Helpers.showToast('Tracking match for live goal & FT alerts!', 'success');
                     }
                 } else {
@@ -428,6 +425,18 @@
                 return;
             }
 
+            // 8b. Player scope button on Account page
+            const playerScopeBtn = target.closest('.fav-player-btn');
+            if (playerScopeBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const teamId = playerScopeBtn.dataset.teamId || null;
+                const leagueId = playerScopeBtn.dataset.leagueId || null;
+                const scopeName = playerScopeBtn.dataset.teamName || playerScopeBtn.dataset.leagueName || '';
+                window.AppRouter.go('fav-add', { type: 'player', teamId, leagueId, scopeName });
+                return;
+            }
+
             // 9. Search Favorite button
             const addBtn = target.closest('.add-fav-btn');
             if (addBtn) {
@@ -453,7 +462,7 @@
                 if (extra) obj.country = extra;
                 const res = await FavoritesService.toggle(type, obj);
                 Helpers.showToast(
-                    res.active ? `★ Added ${name} to Favorites & synced to Widget!` : `Removed ${name} from Favorites`,
+                    res.active ? `Added ${name} to Favorites` : `Removed ${name} from Favorites`,
                     res.active ? 'success' : 'info'
                 );
                 window.AppRouter.go('account');
@@ -469,6 +478,13 @@
         if (container) setupDelegatedEvents(container);
 
         document.addEventListener('nav-back', () => { window.AppRouter.back(); });
+
+        // Automatic background sync on page hide / visibility change
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && Storage && Storage.syncToWidgetServiceBridge) {
+                Storage.syncToWidgetServiceBridge(State.appConfig);
+            }
+        });
 
         const showModal = (id) => {
             const overlay = document.getElementById('modal-overlay');
@@ -527,34 +543,6 @@
             window.AppRouter.go('home');
         };
 
-        // Top Bar Date & Live Controls (Reachable with TV Remote Arrows + OK)
-        const hPrev = document.getElementById('header-btn-prev');
-        if (hPrev) hPrev.onclick = () => {
-            window.AppState.isLiveMode = false;
-            window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() - 1);
-            refreshDateView();
-        };
-
-        const hToday = document.getElementById('header-btn-today');
-        if (hToday) hToday.onclick = () => {
-            window.AppState.isLiveMode = false;
-            window.AppState.currentDate = new Date();
-            refreshDateView();
-        };
-
-        const hNext = document.getElementById('header-btn-next');
-        if (hNext) hNext.onclick = () => {
-            window.AppState.isLiveMode = false;
-            window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() + 1);
-            refreshDateView();
-        };
-
-        const hLive = document.getElementById('header-btn-live');
-        if (hLive) hLive.onclick = () => {
-            window.AppState.isLiveMode = !window.AppState.isLiveMode;
-            refreshDateView();
-        };
-
         const btnPrevDay = document.getElementById('btn-prev-day');
         if (btnPrevDay) btnPrevDay.onclick = () => {
             window.AppState.isLiveMode = false;
@@ -578,11 +566,15 @@
 
         document.querySelectorAll('.modal-close').forEach(b => { b.onclick = closeModal; });
 
+        window.AppRouter.enableWebHistory();
+
         // Check if launched via deep link from Widget or Push Notification
         if (typeof MyPC !== 'undefined' && MyPC.launch && MyPC.launch.path) {
-            if (!window.AppRouter.routeDeepLink(MyPC.launch.path)) {
-                window.AppRouter.render();
-            }
+            window.AppRouter.routeDeepLink(MyPC.launch.path);
+            if (!window.AppRouter.current) window.AppRouter.render();
+        } else if (window.location.hash && window.location.hash !== '#' && window.location.hash !== '#/home') {
+            window.AppRouter.current = window.AppRouter.parseHashRoute();
+            window.AppRouter.render();
         } else {
             window.AppRouter.render();
         }
@@ -615,9 +607,11 @@
             onStart: function() {
                 startLiveTimers();
                 checkLiveMatches();
+                Storage.syncToWidgetServiceBridge(State.appConfig);
             },
             onPause: function() {
                 stopLiveTimers();
+                Storage.syncToWidgetServiceBridge(State.appConfig);
             },
             onResume: function() {
                 startLiveTimers();
@@ -625,6 +619,7 @@
             },
             onDestroy: function() {
                 stopLiveTimers();
+                Storage.syncToWidgetServiceBridge(State.appConfig);
             },
             onLaunch: function(launch) {
                 if (launch && launch.path && window.AppRouter) {
