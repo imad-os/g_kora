@@ -1,16 +1,18 @@
 "use strict";
 
 /**
- * Football App Services - My PC Smart TV Integration with Seamless Firebase Backend
- * 
- * Manages app users seamlessly using MyPC profile username authenticated
- * with the Football app's Firebase Firestore (usersSettings/{uid}),
- * with dual persistence to MyPC.save and local storage.
+ * Football Live - Core Services, Storage & Cloud Sync Bridge for My PC Smart TV
+ *
+ * Persists user favorites & tracked matches across:
+ * 1. MyPC.save('appConfig', cfg) & MyPC.load('appConfig', null) (per My PC profile)
+ * 2. LocalStorage fallback for instant startup
+ * 3. Per-user Firebase Firestore document (usersSettings/{uid})
+ * 4. Shared MyPC Widget/Service Firestore REST Bridge (usersSettings/34n9lRAx7uUMeDQ3KW32H07qJhz1)
+ *    so sandboxed data: Web Workers (widgets/scores.js & services/notify.js) always read live saved favorites.
  */
 
-// Firebase Configuration for the Football App backend
 const firebaseConfig = {
-    apiKey: "AIzaSyClgzoMBEKizx-r7abMvAmLgGpk_p748IU", 
+    apiKey: "AIzaSyClgzoMBEKizx-r7abMvAmLgGpk_p748IU",
     authDomain: "iptv-8b60c.firebaseapp.com",
     projectId: "iptv-8b60c",
     storageBucket: "iptv-8b60c.firebasestorage.app",
@@ -18,49 +20,105 @@ const firebaseConfig = {
     appId: "1:259048691910:web:b57f9eeda5546ce4d8dfc7"
 };
 
-// Global State
+const BRIDGE_CREDENTIALS = {
+    email: "mypc_bridge@mypc.football",
+    password: "MyPC_bridge_football2024!",
+    uid: "34n9lRAx7uUMeDQ3KW32H07qJhz1"
+};
+
+const POPULAR_TEAMS = [
+    { id: 541, name: "Real Madrid", country: "Spain", logo: "https://media.api-sports.io/football/teams/541.png" },
+    { id: 529, name: "Barcelona", country: "Spain", logo: "https://media.api-sports.io/football/teams/529.png" },
+    { id: 489, name: "AC Milan", country: "Italy", logo: "https://media.api-sports.io/football/teams/489.png" },
+    { id: 50, name: "Manchester City", country: "England", logo: "https://media.api-sports.io/football/teams/50.png" },
+    { id: 85, name: "Paris Saint Germain", country: "France", logo: "https://media.api-sports.io/football/teams/85.png" },
+    { id: 40, name: "Liverpool", country: "England", logo: "https://media.api-sports.io/football/teams/40.png" },
+    { id: 42, name: "Arsenal", country: "England", logo: "https://media.api-sports.io/football/teams/42.png" },
+    { id: 157, name: "Bayern Munich", country: "Germany", logo: "https://media.api-sports.io/football/teams/157.png" },
+    { id: 505, name: "Inter", country: "Italy", logo: "https://media.api-sports.io/football/teams/505.png" },
+    { id: 496, name: "Juventus", country: "Italy", logo: "https://media.api-sports.io/football/teams/496.png" },
+    { id: 33, name: "Manchester United", country: "England", logo: "https://media.api-sports.io/football/teams/33.png" },
+    { id: 49, name: "Chelsea", country: "England", logo: "https://media.api-sports.io/football/teams/49.png" },
+    { id: 530, name: "Atletico Madrid", country: "Spain", logo: "https://media.api-sports.io/football/teams/530.png" },
+    { id: 165, name: "Borussia Dortmund", country: "Germany", logo: "https://media.api-sports.io/football/teams/165.png" },
+    { id: 31, name: "Morocco", country: "Morocco", logo: "https://media.api-sports.io/football/teams/31.png" },
+    { id: 968, name: "Wydad AC", country: "Morocco", logo: "https://media.api-sports.io/football/teams/968.png" },
+    { id: 976, name: "Raja Casablanca", country: "Morocco", logo: "https://media.api-sports.io/football/teams/976.png" }
+];
+
+const POPULAR_LEAGUES = [
+    { id: 2, name: "UEFA Champions League", country: "World", logo: "https://media.api-sports.io/football/leagues/2.png" },
+    { id: 39, name: "Premier League", country: "England", logo: "https://media.api-sports.io/football/leagues/39.png" },
+    { id: 140, name: "La Liga", country: "Spain", logo: "https://media.api-sports.io/football/leagues/140.png" },
+    { id: 135, name: "Serie A", country: "Italy", logo: "https://media.api-sports.io/football/leagues/135.png" },
+    { id: 78, name: "Bundesliga", country: "Germany", logo: "https://media.api-sports.io/football/leagues/78.png" },
+    { id: 61, name: "Ligue 1", country: "France", logo: "https://media.api-sports.io/football/leagues/61.png" },
+    { id: 3, name: "UEFA Europa League", country: "World", logo: "https://media.api-sports.io/football/leagues/3.png" },
+    { id: 200, name: "Botola Pro", country: "Morocco", logo: "https://media.api-sports.io/football/leagues/200.png" }
+];
+
 const State = {
     currentUser: { name: "Player", email: "player@mypc.football", uid: "local_player" },
     appConfig: {
         favorite_teams: [
-            { id: 85, name: "Paris Saint Germain" },
-            { id: 50, name: "Manchester City" },
-            { id: 541, name: "Real Madrid" },
-            { id: 529, name: "Barcelona" },
-            { id: 23, name: "Morocco" }
+            { id: 85, name: "Paris Saint Germain", logo: "https://media.api-sports.io/football/teams/85.png" },
+            { id: 50, name: "Manchester City", logo: "https://media.api-sports.io/football/teams/50.png" },
+            { id: 541, name: "Real Madrid", logo: "https://media.api-sports.io/football/teams/541.png" },
+            { id: 529, name: "Barcelona", logo: "https://media.api-sports.io/football/teams/529.png" },
+            { id: 489, name: "AC Milan", logo: "https://media.api-sports.io/football/teams/489.png" },
+            { id: 31, name: "Morocco", logo: "https://media.api-sports.io/football/teams/31.png" }
         ],
         favorite_leagues: [
-            { id: 39, name: "Premier League" },
-            { id: 140, name: "La Liga" },
-            { id: 2, name: "UEFA Champions League" }
+            { id: 2, name: "UEFA Champions League", logo: "https://media.api-sports.io/football/leagues/2.png" },
+            { id: 39, name: "Premier League", logo: "https://media.api-sports.io/football/leagues/39.png" },
+            { id: 140, name: "La Liga", logo: "https://media.api-sports.io/football/leagues/140.png" },
+            { id: 135, name: "Serie A", logo: "https://media.api-sports.io/football/leagues/135.png" }
         ],
         favorite_players: [],
+        tracked_matches: [],
         buttonMappings: {
             dateNext: 'pageUp',
             datePrev: 'pageDown',
             favToggle: 'y',
             trackToggle: 'run'
-        },
-        theme: 'dark-bleu'
+        }
     },
     globalSettings: {
         allowed_leagues: [
+            { id: 2, name: "UEFA Champions League" },
             { id: 39, name: "Premier League" },
             { id: 140, name: "La Liga" },
             { id: 135, name: "Serie A" },
             { id: 78, name: "Bundesliga" },
             { id: 61, name: "Ligue 1" },
-            { id: 2, name: "UEFA Champions League" },
             { id: 3, name: "UEFA Europa League" }
         ]
     },
-    firebaseConnected: false
+    firebaseConnected: false,
+    bridgeSynced: false,
+    POPULAR_TEAMS,
+    POPULAR_LEAGUES
 };
 
 const Helpers = {
     formatDate: (date) => {
         if (!(date instanceof Date) || isNaN(date)) date = new Date();
-        return date.toLocaleDateString("en-CA");
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    },
+    formatDisplayDate: (date) => {
+        if (!(date instanceof Date) || isNaN(date)) date = new Date();
+        const today = new Date();
+        const isToday = date.toDateString() === today.toDateString();
+        const tmr = new Date(today); tmr.setDate(today.getDate() + 1);
+        const yest = new Date(today); yest.setDate(today.getDate() - 1);
+        const shortStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        if (isToday) return `Today · ${shortStr}`;
+        if (date.toDateString() === tmr.toDateString()) return `Tomorrow · ${shortStr}`;
+        if (date.toDateString() === yest.toDateString()) return `Yesterday · ${shortStr}`;
+        return shortStr;
     },
     getCurrentSeason: () => {
         const today = new Date();
@@ -72,15 +130,13 @@ const Helpers = {
                 return window.AppServices.FavoritesService.isFavorite(type, id);
             }
         } catch (e) {}
-
         const idNum = Number(id);
         const { appConfig } = State;
-        if (type === 'team') return !!(appConfig.favorite_teams && appConfig.favorite_teams.some(team => team.id === idNum));
-        if (type === 'league') return !!(appConfig.favorite_leagues && appConfig.favorite_leagues.some(league => league.id === idNum));
-        if (type === 'player') return !!(appConfig.favorite_players && appConfig.favorite_players.some(p => p.id === idNum));
+        if (type === 'team') return Boolean(appConfig.favorite_teams && appConfig.favorite_teams.some(team => Number(team.id) === idNum));
+        if (type === 'league') return Boolean(appConfig.favorite_leagues && appConfig.favorite_leagues.some(league => Number(league.id) === idNum));
+        if (type === 'player') return Boolean(appConfig.favorite_players && appConfig.favorite_players.some(p => Number(p.id) === idNum));
         return false;
     },
-    
     showToast: (message, type = 'info') => {
         let container = document.getElementById('toast-container');
         if (!container) {
@@ -92,7 +148,7 @@ const Helpers = {
 
         const toast = document.createElement('div');
         toast.className = `toast-notification toast-${type}`;
-        
+
         let icon = 'ph-info';
         if (type === 'error') icon = 'ph-warning-circle';
         if (type === 'success') icon = 'ph-check-circle';
@@ -101,16 +157,16 @@ const Helpers = {
         toast.innerHTML = `<i class="ph ${icon}"></i> <span>${message}</span>`;
         container.appendChild(toast);
 
-        if (typeof MyPC !== 'undefined' && MyPC.voice && typeof MyPC.voice.say === 'function') {
-            MyPC.voice.say(message);
+        if (typeof MyPC !== 'undefined' && typeof MyPC.announce === 'function') {
+            try { MyPC.announce(message); } catch (e) {}
         }
 
         setTimeout(() => {
-            toast.style.animation = 'fadeOutToast 0.5s ease-out';
-            setTimeout(() => toast.remove(), 500);
-        }, 4000);
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(-8px)';
+            setTimeout(() => toast.remove(), 220);
+        }, 3200);
     },
-
     showPageError: (message) => {
         const container = document.getElementById('content-container');
         if (!container) return;
@@ -118,9 +174,9 @@ const Helpers = {
         container.innerHTML = `
             <div class="page-error">
                 <i class="ph ph-warning-octagon"></i>
-                <h2>Oops! Something went wrong.</h2>
+                <h2>Unable to Load Match Data</h2>
                 <p>${message}</p>
-                <button class="styled-button focusable" onclick="window.AppRouter.go('home')">Reload App</button>
+                <button class="styled-button focusable" tabindex="0" onclick="window.AppRouter.go('home')">Retry</button>
             </div>
         `;
         const btn = container.querySelector('button');
@@ -142,22 +198,16 @@ const API = {
             if (window.FootballClient) {
                 data = await window.FootballClient.fetchData(path, params);
             }
-
             API.lastErrors = null;
             if (data && data.errors && Object.keys(data.errors).length > 0) {
                 API.lastErrors = data.errors;
-                const msg = "Some match data may be temporarily unavailable.";
                 console.warn("API returned partial errors:", data.errors);
-                Helpers.showToast(msg, 'alert');
             }
-
             return (data && data.response) ? data.response : [];
         } catch (error) {
             console.error("API Error detected in fetch:", error);
-            
             const container = document.getElementById('content-container');
             const isLoading = container && (container.querySelector('.skeleton-row') || container.querySelector('.skeleton-detail-header'));
-
             const errorMessages = error.message || "Failed to load football data.";
             if (isLoading) {
                 Helpers.showPageError(errorMessages);
@@ -169,19 +219,25 @@ const API = {
     }
 };
 
-// --- FavoritesService (Using MyPC Native Storage & Firebase) ---
 const FavoritesService = {
     normalizeConfig: (cfg) => {
-        const c = cfg || {};
+        const c = cfg ? { ...cfg } : {};
         const toArr = (v) => Array.isArray(v) ? v : [];
         const mergeUniqueById = (a, b) => {
             const out = [];
             const seen = new Set();
             [...toArr(a), ...toArr(b)].forEach(it => {
-                const id = Number(it && it.id);
+                let id = Number(it && it.id);
+                const name = String((it && it.name) || 'Unknown').trim();
+                let logo = it && it.logo;
+                if (id === 23 && name.toLowerCase() === 'morocco') {
+                    id = 31;
+                    logo = 'https://media.api-sports.io/football/teams/31.png';
+                }
                 if (!id || seen.has(id)) return;
                 seen.add(id);
-                out.push({ ...it, id });
+                logo = logo || (id ? `https://media.api-sports.io/football/teams/${id}.png` : '');
+                out.push({ ...it, id, name, logo });
             });
             return out;
         };
@@ -189,6 +245,7 @@ const FavoritesService = {
         c.favorite_teams = mergeUniqueById(c.favorite_teams, c.favourit_teams);
         c.favorite_leagues = mergeUniqueById(c.favorite_leagues, c.favourite_leagues);
         c.favorite_players = mergeUniqueById(c.favorite_players, c.favourite_players);
+        c.tracked_matches = Array.from(new Set(toArr(c.tracked_matches).map(Number).filter(Boolean)));
 
         delete c.favourit_teams;
         delete c.favourite_leagues;
@@ -206,9 +263,6 @@ const FavoritesService = {
 
     ensure: () => {
         State.appConfig = FavoritesService.normalizeConfig(State.appConfig || {});
-        State.appConfig.favorite_teams = State.appConfig.favorite_teams || [];
-        State.appConfig.favorite_leagues = State.appConfig.favorite_leagues || [];
-        State.appConfig.favorite_players = State.appConfig.favorite_players || [];
         return State.appConfig;
     },
 
@@ -233,7 +287,15 @@ const FavoritesService = {
         const key = FavoritesService._keyForType(type);
         const arr = cfg[key] || [];
         if (arr.some(x => Number(x.id) === id)) return false;
-        arr.push({ ...item, id });
+        const defaultLogo = type === 'team'
+            ? `https://media.api-sports.io/football/teams/${id}.png`
+            : (type === 'league' ? `https://media.api-sports.io/football/leagues/${id}.png` : '');
+        arr.push({
+            ...item,
+            id,
+            name: String(item.name || 'Unknown').trim(),
+            logo: item.logo || defaultLogo
+        });
         cfg[key] = arr;
         State.appConfig = cfg;
         await Storage.saveUserConfig(State.currentUser.uid, cfg);
@@ -263,18 +325,69 @@ const FavoritesService = {
     }
 };
 
-// --- Storage using Seamless Firebase Auth & Firestore + MyPC.save ---
 let firebaseDb = null;
 let firebaseAuth = null;
+let bridgeTokenCache = { token: null, exp: 0 };
+
+async function getBridgeAuthToken() {
+    const now = Date.now();
+    if (bridgeTokenCache.token && bridgeTokenCache.exp > now) {
+        return bridgeTokenCache.token;
+    }
+    try {
+        const res = await fetch(
+            `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${firebaseConfig.apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: BRIDGE_CREDENTIALS.email,
+                    password: BRIDGE_CREDENTIALS.password,
+                    returnSecureToken: true
+                })
+            }
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.idToken) {
+            bridgeTokenCache = {
+                token: data.idToken,
+                exp: now + 50 * 60 * 1000
+            };
+            return data.idToken;
+        }
+    } catch (e) {}
+    return null;
+}
 
 const Storage = {
     saveUserConfigLocally: (config) => {
+        const cfg = config || State.appConfig;
         try {
-            localStorage.setItem('appConfig', JSON.stringify(config || State.appConfig));
+            localStorage.setItem('appConfig', JSON.stringify(cfg));
+        } catch (e) {}
+        try {
+            if (typeof MyPC !== 'undefined' && typeof MyPC.save === 'function') {
+                MyPC.save('appConfig', cfg);
+                if (Array.isArray(cfg.tracked_matches)) {
+                    MyPC.save('tracked_matches', cfg.tracked_matches);
+                }
+            }
         } catch (e) {}
     },
 
     loadUserConfigLocally: () => {
+        // Priority 1: MyPC native profile storage (synchronous from onInit)
+        try {
+            if (typeof MyPC !== 'undefined' && typeof MyPC.load === 'function') {
+                const mypcSaved = MyPC.load('appConfig', null);
+                if (mypcSaved && typeof mypcSaved === 'object' && (Array.isArray(mypcSaved.favorite_teams) || Array.isArray(mypcSaved.favorite_leagues))) {
+                    return mypcSaved;
+                }
+            }
+        } catch (e) {}
+
+        // Priority 2: LocalStorage
         try {
             const configStr = localStorage.getItem('appConfig');
             return configStr ? JSON.parse(configStr) : null;
@@ -284,15 +397,103 @@ const Storage = {
     },
 
     /**
-     * Seamless Firebase Authentication Bridge:
-     * Takes MyPC profile username, signs into or creates corresponding Firebase account,
-     * and syncs Firestore with MyPC.save.
+     * Push user's favorites & tracked matches to the shared Firestore REST Bridge
+     * so sandboxed Web Workers (widgets/scores.js & services/notify.js) always have instant access.
      */
+    syncToWidgetServiceBridge: async (config) => {
+        const cfg = FavoritesService.normalizeConfig(config || State.appConfig);
+        if (window.AppState && window.AppState.monitoredMatches) {
+            cfg.tracked_matches = Array.from(window.AppState.monitoredMatches).map(Number).filter(Boolean);
+        }
+        const cleanUser = String(State.currentUser?.name || 'player').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player';
+        const payloadObj = {
+            username: cleanUser,
+            updatedAt: Date.now(),
+            favorite_teams: cfg.favorite_teams || [],
+            favorite_leagues: cfg.favorite_leagues || [],
+            favorite_players: cfg.favorite_players || [],
+            tracked_matches: cfg.tracked_matches || []
+        };
+        const payloadJson = JSON.stringify(payloadObj);
+
+        try {
+            const token = await getBridgeAuthToken();
+            if (!token) return false;
+
+            const docUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/usersSettings/${BRIDGE_CREDENTIALS.uid}`;
+
+            // Read existing profiles map so we preserve other profiles on the same TV
+            let existingProfiles = {};
+            try {
+                const getRes = await fetch(docUrl, { headers: { Authorization: `Bearer ${token}` } });
+                if (getRes.ok) {
+                    const existingDoc = await getRes.json();
+                    if (existingDoc?.fields?.profiles?.mapValue?.fields) {
+                        existingProfiles = { ...existingDoc.fields.profiles.mapValue.fields };
+                    }
+                }
+            } catch (e) {}
+
+            existingProfiles[cleanUser] = { stringValue: payloadJson };
+
+            const patchBody = {
+                fields: {
+                    latestConfigJson: { stringValue: payloadJson },
+                    lastUsername: { stringValue: cleanUser },
+                    updatedAt: { integerValue: String(Date.now()) },
+                    profiles: {
+                        mapValue: {
+                            fields: existingProfiles
+                        }
+                    }
+                }
+            };
+
+            const patchRes = await fetch(docUrl, {
+                method: 'PATCH',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(patchBody)
+            });
+
+            if (patchRes.ok) {
+                State.bridgeSynced = true;
+                return true;
+            }
+        } catch (e) {
+            console.warn("Widget/Service bridge sync warning:", e);
+        }
+        return false;
+    },
+
+    loadFromWidgetServiceBridge: async (mypcUsername) => {
+        try {
+            const token = await getBridgeAuthToken();
+            if (!token) return null;
+            const docUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/usersSettings/${BRIDGE_CREDENTIALS.uid}`;
+            const res = await fetch(docUrl, { headers: { Authorization: `Bearer ${token}` } });
+            if (!res.ok) return null;
+            const doc = await res.json();
+            const fields = doc.fields || {};
+            const cleanUser = String(mypcUsername || 'player').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player';
+
+            if (fields.profiles?.mapValue?.fields?.[cleanUser]?.stringValue) {
+                State.bridgeSynced = true;
+                return JSON.parse(fields.profiles.mapValue.fields[cleanUser].stringValue);
+            }
+            if (fields.latestConfigJson?.stringValue) {
+                State.bridgeSynced = true;
+                return JSON.parse(fields.latestConfigJson.stringValue);
+            }
+        } catch (e) {}
+        return null;
+    },
+
     initSeamlessFirebase: async (mypcUsername) => {
-        const username = mypcUsername || "MyPCPlayer";
+        const username = mypcUsername || "Player";
         const cleanUser = username.toLowerCase().replace(/[^a-z0-9_]/g, '') || "player";
-        const email = `${cleanUser}@mypc.football`;
-        const password = `MyPC_${cleanUser}_football2024!`;
 
         if (typeof firebase !== 'undefined' && firebase.initializeApp) {
             try {
@@ -302,118 +503,130 @@ const Storage = {
                 firebaseAuth = firebase.auth();
                 firebaseDb = firebase.firestore();
 
-                let userCredential = null;
-                try {
-                    userCredential = await firebaseAuth.signInWithEmailAndPassword(email, password);
-                } catch (signInErr) {
-                    if (signInErr.code === 'auth/user-not-found' || signInErr.code === 'auth/invalid-credential') {
-                        userCredential = await firebaseAuth.createUserWithEmailAndPassword(email, password);
-                    } else {
-                        console.warn("Firebase sign in error:", signInErr.code);
-                    }
-                }
+                const userCredential = await firebaseAuth.signInWithEmailAndPassword(
+                    BRIDGE_CREDENTIALS.email,
+                    BRIDGE_CREDENTIALS.password
+                );
 
                 if (userCredential && userCredential.user) {
                     const u = userCredential.user;
-                    State.currentUser = { uid: u.uid, email: u.email, name: username };
+                    State.currentUser = { uid: u.uid, email: `${cleanUser}@mypc.football`, name: username };
                     State.firebaseConnected = true;
-                    console.log(`Firebase connected seamlessly for user: ${username} (UID: ${u.uid})`);
 
-                    // Sync remote Firestore config
                     const doc = await firebaseDb.collection('usersSettings').doc(u.uid).get();
                     if (doc.exists) {
-                        const remoteConfig = doc.data();
-                        State.appConfig = FavoritesService.normalizeConfig(remoteConfig);
-                        Storage.saveUserConfigLocally(State.appConfig);
-                        if (typeof MyPC !== 'undefined' && MyPC.save) MyPC.save(State.appConfig);
-                        return State.appConfig;
-                    } else {
-                        // First time: write initial config to Firestore
-                        await firebaseDb.collection('usersSettings').doc(u.uid).set(State.appConfig, { merge: true });
+                        const data = doc.data() || {};
+                        let remoteConfig = null;
+                        if (data.profiles && typeof data.profiles[cleanUser] === 'string') {
+                            try { remoteConfig = JSON.parse(data.profiles[cleanUser]); } catch (e) {}
+                        } else if (typeof data.latestConfigJson === 'string') {
+                            try { remoteConfig = JSON.parse(data.latestConfigJson); } catch (e) {}
+                        } else if (Array.isArray(data.favorite_teams) || Array.isArray(data.favourit_teams)) {
+                            remoteConfig = data;
+                        }
+
+                        if (remoteConfig && (Array.isArray(remoteConfig.favorite_teams) || Array.isArray(remoteConfig.favourit_teams))) {
+                            // Merge with any local changes if local already exists
+                            const local = Storage.loadUserConfigLocally();
+                            const merged = local ? FavoritesService.normalizeConfig({
+                                ...remoteConfig,
+                                ...local,
+                                favorite_teams: local.favorite_teams || remoteConfig.favorite_teams,
+                                favorite_leagues: local.favorite_leagues || remoteConfig.favorite_leagues,
+                                tracked_matches: local.tracked_matches || remoteConfig.tracked_matches
+                            }) : FavoritesService.normalizeConfig(remoteConfig);
+                            State.appConfig = merged;
+                            Storage.saveUserConfigLocally(State.appConfig);
+                            await Storage.syncToWidgetServiceBridge(State.appConfig);
+                            return State.appConfig;
+                        }
                     }
+                    await Storage.syncToWidgetServiceBridge(State.appConfig);
                 }
             } catch (fbErr) {
-                console.warn("Seamless Firebase initialization skipped or offline:", fbErr.message);
+                console.warn("Seamless Firebase initialization fallback:", fbErr.message);
             }
         }
         return null;
     },
 
     loadUserConfig: async (mypcUsername) => {
-        // Try seamless Firebase sync first
-        const fbConfig = await Storage.initSeamlessFirebase(mypcUsername);
-        if (fbConfig) return fbConfig;
-
-        // Fallback to MyPC.load()
-        try {
-            if (typeof MyPC !== 'undefined' && typeof MyPC.load === 'function') {
-                const saved = await MyPC.load();
-                if (saved && typeof saved === 'object') {
-                    State.appConfig = FavoritesService.normalizeConfig(saved);
-                    Storage.saveUserConfigLocally(State.appConfig);
-                    return State.appConfig;
-                }
-            }
-        } catch (e) {
-            console.warn("MyPC.load error, checking local fallback:", e);
-        }
-
+        // 1. Check MyPC.load('appConfig', null) or localStorage first for immediate responsiveness
         const local = Storage.loadUserConfigLocally();
         if (local) {
             State.appConfig = FavoritesService.normalizeConfig(local);
         }
+
+        // 2. Check per-profile Firebase Firestore
+        const fbConfig = await Storage.initSeamlessFirebase(mypcUsername);
+        if (fbConfig) {
+            if (Array.isArray(fbConfig.tracked_matches) && window.AppState) {
+                fbConfig.tracked_matches.forEach(id => window.AppState.monitoredMatches.add(Number(id)));
+            }
+            return fbConfig;
+        }
+
+        // 3. Check shared Widget/Service Bridge if no local config was saved yet
+        if (!local) {
+            const bridgeCfg = await Storage.loadFromWidgetServiceBridge(mypcUsername);
+            if (bridgeCfg) {
+                State.appConfig = FavoritesService.normalizeConfig(Object.assign({}, State.appConfig, bridgeCfg));
+                Storage.saveUserConfigLocally(State.appConfig);
+            }
+        }
+
+        // Ensure widget/service bridge always has the active config
+        Storage.syncToWidgetServiceBridge(State.appConfig);
         return State.appConfig;
     },
 
     saveUserConfig: async (uid, config) => {
-        State.appConfig = config || State.appConfig;
+        if (config) State.appConfig = FavoritesService.normalizeConfig(config);
+        if (window.AppState && window.AppState.monitoredMatches) {
+            State.appConfig.tracked_matches = Array.from(window.AppState.monitoredMatches).map(Number).filter(Boolean);
+        }
+
+        // 1. Save to MyPC.save('appConfig', ...) & localStorage immediately
         Storage.saveUserConfigLocally(State.appConfig);
 
-        // 1. Save to Firebase Firestore if connected
+        // 2. Save to Widget & Service Firestore REST Bridge (non-blocking or awaited)
+        const bridgePromise = Storage.syncToWidgetServiceBridge(State.appConfig);
+
+        // 3. Save to user's personal Firebase document if connected
         if (firebaseDb && State.currentUser && State.currentUser.uid && State.currentUser.uid !== 'local_player') {
             try {
                 await firebaseDb.collection('usersSettings').doc(State.currentUser.uid).set(State.appConfig, { merge: true });
-                console.log("Firebase: saved user settings to Firestore.");
             } catch (err) {
-                console.warn("Firebase save error:", err.message);
+                console.warn("Firebase save warning:", err.message);
             }
         }
 
-        // 2. Save to MyPC native storage
-        try {
-            if (typeof MyPC !== 'undefined' && typeof MyPC.save === 'function') {
-                await MyPC.save(State.appConfig);
-                console.log("MyPC: saved configuration successfully.");
-            }
-        } catch (e) {
-            console.error("MyPC.save error:", e);
-        }
+        await bridgePromise;
     },
 
     loadGlobalSettings: async () => {
-        if (typeof MyPC !== 'undefined' && MyPC.app_config && MyPC.app_config.allowed_leagues) {
+        if (typeof MyPC !== 'undefined' && MyPC.app_config && Array.isArray(MyPC.app_config.allowed_leagues)) {
             State.globalSettings.allowed_leagues = MyPC.app_config.allowed_leagues;
         }
         return State.globalSettings;
     }
 };
 
-// Initial local load
+// Initial synchronous load
 const cached = Storage.loadUserConfigLocally();
 if (cached) {
     State.appConfig = FavoritesService.normalizeConfig(cached);
 }
 
-// Authentication abstraction for My PC TV profiles
 const auth = {
     get currentUser() { return State.currentUser; },
     onAuthStateChanged: function(cb) {
         if (typeof cb === 'function') {
-            setTimeout(() => cb(State.currentUser), 50);
+            setTimeout(() => cb(State.currentUser), 30);
         }
     },
     signOut: async function() {
-        Helpers.showToast("TV Profile managed by My PC", "info");
+        Helpers.showToast("Profile is managed by My PC", "info");
     }
 };
 

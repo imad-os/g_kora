@@ -7,7 +7,7 @@
     <meta name="description" content="Live football scores, fixtures, standings, and match details adapted for My PC and Smart TV.">
     <meta property="og:title" content="Football Live">
     <meta property="og:description" content="Live football scores, fixtures, standings, and match details adapted for My PC and Smart TV.">
-    
+
     <!-- My PC SDK: MUST be the first script of the page -->
     <script src="https://imad-os.github.io/g/sdk/mypc-sdk.js"></script>
 
@@ -16,20 +16,23 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
-    <link rel="stylesheet" href="css/style.css?v=1.0.5">
-    <!-- Phosphor Icons -->
+    <!-- Broadcast Typography: Plus Jakarta Sans & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="css/style.css?v=1.0.6">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
 </head>
 <body>
 
 <div id="app-wrapper">
-    
+
     <svg xmlns="http://www.w3.org/2000/svg" style="display:none;">
         <defs>
           <symbol id="icon-star" viewBox="0 0 24 24">
             <polygon points="12,2 15,9 22,9 17,14 19,22 12,18 5,22 7,14 2,9 9,9"/>
           </symbol>
-
           <symbol id="icon-hourglass" viewBox="0 0 24 24">
             <g class="hourglass-body">
                 <path d="M5 2h14" stroke="currentColor" stroke-width="2" />
@@ -40,109 +43,101 @@
           </symbol>
         </defs>
     </svg>
-      
+
     <!-- LEFT SIDEBAR -->
-    <nav id="sidebar">
+    <nav id="sidebar" aria-label="Main Navigation">
         <div class="sidebar-logo">
-            <img src="assets/icon.png" alt="Football Live" style="width: 100%;">
+            <img src="assets/icon.png" alt="Football Live">
         </div>
         <div class="sidebar-menu">
-            <div class="menu-item focusable active" data-target="home" id="nav-home" tabindex="0">
-                <i class="ph ph-house"></i>
+            <button type="button" class="menu-item focusable active" data-target="home" id="nav-home" tabindex="0" aria-label="Matches">
+                <i class="ph ph-soccer-ball"></i>
                 <span>Matches</span>
-            </div>
-            <div class="menu-item focusable" data-target="calendar" id="nav-calendar" tabindex="0">
+            </button>
+            <button type="button" class="menu-item focusable" data-target="calendar" id="nav-calendar" tabindex="0" aria-label="Calendar">
                 <i class="ph ph-calendar"></i>
                 <span>Calendar</span>
-            </div>
-            <div class="menu-item focusable" data-target="auth" id="nav-auth" tabindex="0">
+            </button>
+            <button type="button" class="menu-item focusable" data-target="auth" id="nav-auth" tabindex="0" aria-label="Favorites">
                 <i class="ph ph-star"></i>
                 <span>Favorites</span>
-            </div>
-            <div class="menu-item focusable" data-target="settings" id="nav-settings" tabindex="0">
+            </button>
+            <button type="button" class="menu-item focusable" data-target="settings" id="nav-settings" tabindex="0" aria-label="Settings">
                 <i class="ph ph-gear"></i>
                 <span>Settings</span>
-            </div>
+            </button>
         </div>
         <div class="sidebar-footer">
              <div class="time-display" id="clock">--:--</div>
              <div class="progress" id="refreshTimer">
-                <div class="progress-fill" style="width:40%"></div>
+                <div class="progress-fill" style="width:100%"></div>
             </div>
         </div>
     </nav>
 
     <!-- MAIN CONTENT AREA -->
     <main id="main-view">
-        
-        <!-- Date Header with CH Guide -->
-        <div id="date-header-wrapper">
-            <div id="date-header">Today</div>
-            <div class="ch-guide">
-                <span>CH / L-R</span>
-                <i class="ph ph-caret-up"></i>
-                <i class="ph ph-caret-down"></i>
+
+        <!-- Broadcast Top Date & Filter Bar (TV Remote & Controller Accessible) -->
+        <header id="date-header-wrapper">
+            <div class="date-header-left">
+                <div id="date-header">Today</div>
             </div>
-        </div>
+            <div class="date-header-controls">
+                <button type="button" id="header-btn-prev" class="date-nav-btn focusable" tabindex="0" aria-label="Previous Day">
+                    <i class="ph ph-caret-left"></i> Prev Day
+                </button>
+                <button type="button" id="header-btn-today" class="date-nav-btn focusable" tabindex="0" aria-label="Today">
+                    Today
+                </button>
+                <button type="button" id="header-btn-next" class="date-nav-btn focusable" tabindex="0" aria-label="Next Day">
+                    Next Day <i class="ph ph-caret-right"></i>
+                </button>
+                <button type="button" id="header-btn-live" class="date-nav-btn live-filter-btn focusable" tabindex="0" aria-label="Live Only">
+                    Live Only
+                </button>
+            </div>
+        </header>
 
         <!-- SCROLLABLE ROWS CONTAINER -->
         <div id="content-container">
-            <!-- Content / Skeletons dynamically injected -->
+            <!-- Content dynamically injected -->
         </div>
 
     </main>
 
     <!-- MODALS CONTAINER -->
     <div id="modal-overlay" class="modal-overlay">
-        
-        <!-- TV Profile & Account Modal -->
-        <div id="auth-modal" class="modal-content" style="display:none;">
-            <h2 id="auth-title">TV Profile</h2>
-            <p id="auth-message">Your favorites and tracked matches sync automatically with your My PC user profile.</p>
-            <div style="margin: 1.5rem 0; text-align: center;">
-                <div class="user-avatar-badge" style="margin: 0 auto 0.5rem auto;" id="profile-avatar-letter">P</div>
-                <div style="font-weight: 600; font-size: 1.2rem; color: #f8fafc;" id="profile-display-name">Active Profile</div>
-                <div style="color: #94a3b8; font-size: 0.9rem; margin-top: 0.25rem;" id="firebase-sync-status">Firebase: Synced</div>
-            </div>
-            <button class="modal-close styled-button focusable" style="margin-top:1rem;" tabindex="0">Close</button>
-        </div>
 
         <!-- Date Modal -->
         <div id="date-modal" class="modal-content" style="display:none;">
-            <h2>Select Date</h2>
+            <h2>Select Match Date</h2>
             <div class="date-controls">
-                <button id="btn-prev-day" class="icon-button focusable" tabindex="0"><i class="ph ph-caret-left"></i></button>
-                <span id="modal-current-date" style="font-size: 1.5rem; font-weight: bold; margin: 0 1rem; min-width: 150px; display:inline-block;">Today</span>
-                <button id="btn-next-day" class="icon-button focusable" tabindex="0"><i class="ph ph-caret-right"></i></button>
+                <button type="button" id="btn-prev-day" class="icon-button focusable" tabindex="0" aria-label="Previous Day"><i class="ph ph-caret-left"></i></button>
+                <span id="modal-current-date" class="modal-date-label">Today</span>
+                <button type="button" id="btn-next-day" class="icon-button focusable" tabindex="0" aria-label="Next Day"><i class="ph ph-caret-right"></i></button>
             </div>
             <div style="margin-top: 1.5rem;">
-                <button id="btn-live-toggle" class="styled-button focusable" tabindex="0">Toggle Live Only</button>
+                <button type="button" id="btn-live-toggle" class="styled-button focusable" tabindex="0">Toggle Live Matches Only</button>
             </div>
-            <button class="modal-close styled-button focusable" style="margin-top:1rem;" tabindex="0">Close</button>
+            <button type="button" class="modal-close styled-button secondary focusable" style="margin-top:1rem;" tabindex="0">Close</button>
         </div>
 
     </div>
 
-    <!-- LIVE EVENT ALERT (Custom Overlay) -->
-    <div id="live-alert" class="alert-toast focusable" tabindex="0" style="display:none;">
-        <div class="alert-icon">⚽</div>
-        <div class="alert-content">
-            <div id="alert-title">Goal!</div>
-            <div id="alert-desc">Team A just scored!</div>
-        </div>
-    </div>
-    
+    <!-- LIVE EVENT ALERT -->
+    <div id="live-alert" class="alert-toast focusable" tabindex="0" style="display:none;"></div>
+
     <!-- TOAST CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
     <!-- GAMEPAD / REMOTE HUD HINTS -->
     <div class="gamepad-hud" id="gamepad-hud">
-        <div class="hud-hint"><span class="hud-btn hud-btn-b">B</span> Select</div>
-        <div class="hud-hint"><span class="hud-btn hud-btn-a">A</span> Back</div>
-        <div class="hud-hint" id="hud-track-hint"><span class="hud-btn hud-btn-x">X</span> Track Match</div>
-        <div class="hud-hint" id="hud-fav-hint"><span class="hud-btn hud-btn-y">Y</span> Favorite</div>
-        <div class="hud-hint"><span class="hud-btn hud-btn-shoulder">L / R</span> Day</div>
-        <div class="hud-hint"><span class="hud-btn hud-btn-shoulder">+</span> Menu</div>
+        <div class="hud-hint"><span class="hud-btn">OK / B</span> Select</div>
+        <div class="hud-hint"><span class="hud-btn">Back / A</span> Back</div>
+        <div class="hud-hint" id="hud-track-hint"><span class="hud-btn">X</span> Track Alert</div>
+        <div class="hud-hint" id="hud-fav-hint"><span class="hud-btn">Y / ★</span> Fav Team</div>
+        <div class="hud-hint"><span class="hud-btn">LB / RB</span> Day</div>
     </div>
 
 </div>
@@ -150,13 +145,13 @@
 <audio id="snd-goal" src="assets/sounds/goal.mp3" preload="auto"></audio>
 <audio id="snd-whistle" src="assets/sounds/whistle.mp3" preload="auto"></audio>
 
-<script src="js/service_football.js?v=1.0.5"></script>
-<script src="js/services.js?v=1.0.5"></script>
-<script src="js/navigation.js?v=1.0.5"></script>
-<script src="js/utils.js?v=1.0.5"></script>
-<script src="js/ui.js?v=1.0.5"></script>
-<script src="js/router.js?v=1.0.5"></script>
-<script src="js/main.js?v=1.0.5"></script>
+<script src="js/service_football.js?v=1.0.6"></script>
+<script src="js/services.js?v=1.0.6"></script>
+<script src="js/navigation.js?v=1.0.6"></script>
+<script src="js/utils.js?v=1.0.6"></script>
+<script src="js/ui.js?v=1.0.6"></script>
+<script src="js/router.js?v=1.0.6"></script>
+<script src="js/main.js?v=1.0.6"></script>
 
 </body>
 </html>

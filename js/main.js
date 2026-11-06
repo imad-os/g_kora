@@ -7,7 +7,6 @@
     const Components = window.AppComponents;
     const Utils = window.Utils;
 
-    // --- GLOBAL APP STATE INITIALIZATION ---
     window.AppState = {
         currentDate: new Date(),
         isLiveMode: false,
@@ -27,11 +26,20 @@
     let liveCheckTimer = null;
     let progressTimer = null;
 
-    // Load tracked matches
+    // Load tracked matches from MyPC.load or localStorage
     try {
-        const saved = localStorage.getItem('tracked_matches');
-        if (saved) window.AppState.monitoredMatches = new Set(JSON.parse(saved));
-    } catch(e) {}
+        let saved = null;
+        if (typeof MyPC !== 'undefined' && typeof MyPC.load === 'function') {
+            saved = MyPC.load('tracked_matches', null);
+        }
+        if (!Array.isArray(saved)) {
+            const raw = localStorage.getItem('tracked_matches');
+            if (raw) saved = JSON.parse(raw);
+        }
+        if (Array.isArray(saved)) {
+            window.AppState.monitoredMatches = new Set(saved.map(Number).filter(Boolean));
+        }
+    } catch (e) {}
 
     function startLiveTimers() {
         if (!liveCheckTimer) {
@@ -62,7 +70,7 @@
             if (_cards && _cards.length) {
                 for (const card of _cards) {
                     const dot = card.querySelector('.track-indicator');
-                    if (dot) dot.remove(); 
+                    if (dot) dot.remove();
                 }
             }
         }
@@ -70,35 +78,35 @@
 
     function showAlert(title, desc, matchData, type, isSilent = false) {
         if (!isSilent && Utils && Utils.playSound) Utils.playSound(type);
-        if (document.hidden) return; 
+        if (document.hidden) return;
 
         const alertEl = document.getElementById('live-alert');
         if (!alertEl) return;
 
         const homeScore = matchData.goals.home ?? 0;
         const awayScore = matchData.goals.away ?? 0;
-        
+
         alertEl.innerHTML = `
-            <div class="alert-header"><span class="alert-event-type">${title}</span><span class="alert-time">${Utils ? Utils.formTimeString(matchData.fixture.status) : ''}'</span></div>
+            <div class="alert-header"><span class="alert-event-type">${title}</span><span class="alert-time">${Utils ? Utils.formTimeString(matchData.fixture.status) : ''}</span></div>
             <div class="alert-teams">
-                <div class="alert-team"><img src="${matchData.teams.home.logo}"><span>${matchData.teams.home.name}</span></div>
+                <div class="alert-team"><img src="${matchData.teams.home.logo}" alt="${matchData.teams.home.name}"><span>${matchData.teams.home.name}</span></div>
                 <div class="alert-score-board">${homeScore} - ${awayScore}</div>
-                <div class="alert-team"><img src="${matchData.teams.away.logo}"><span>${matchData.teams.away.name}</span></div>
+                <div class="alert-team"><img src="${matchData.teams.away.logo}" alt="${matchData.teams.away.name}"><span>${matchData.teams.away.name}</span></div>
             </div>
             <div class="alert-desc">${desc}</div>
         `;
-        
+
         alertEl.style.display = 'flex';
-        void alertEl.offsetWidth; 
+        void alertEl.offsetWidth;
         alertEl.classList.add('visible');
         if (!isSilent && window.Navigation) window.Navigation.focus(alertEl, false);
 
         const closeAlert = () => {
             alertEl.classList.remove('visible');
-            setTimeout(() => alertEl.style.display = 'none', 300);
+            setTimeout(() => { alertEl.style.display = 'none'; }, 250);
         };
         alertEl.onclick = () => { window.AppRouter.go('match', matchData.fixture.id); closeAlert(); };
-        setTimeout(closeAlert, 10000);
+        setTimeout(closeAlert, 9000);
         if (window.AppState.currentMatchId === matchData.fixture.id) {
             window.AppRouter.go('match', matchData.fixture.id);
         }
@@ -112,49 +120,45 @@
             if (liveData === null || !Array.isArray(liveData)) return;
 
             const allowedLeagues = State.globalSettings.allowed_leagues || [];
-            const allowedIds = new Set(allowedLeagues.map(l => l.id));
-            const favTeams = new Set((State.appConfig.favorite_teams || []).map(t => t.id));
-            const favLeagues = new Set((State.appConfig.favorite_leagues || []).map(l => l.id));
+            const allowedIds = new Set(allowedLeagues.map(l => Number(l.id)));
+            const favTeams = new Set((State.appConfig.favorite_teams || []).map(t => Number(t.id)));
+            const favLeagues = new Set((State.appConfig.favorite_leagues || []).map(l => Number(l.id)));
 
             for (const m of liveData) {
                 const mid = m.fixture.id;
                 const isTracked = Utils ? Utils.isTracked(mid) : false;
-                const isFav = favTeams.has(m.teams.home.id) || favTeams.has(m.teams.away.id) || favLeagues.has(m.league.id);
-                const isAllowed = allowedIds.has(m.league.id);
+                const isFav = favTeams.has(Number(m.teams.home.id)) || favTeams.has(Number(m.teams.away.id)) || favLeagues.has(Number(m.league.id));
+                const isAllowed = allowedIds.has(Number(m.league.id));
                 const isCurrentMatch = (window.AppState.currentMatchId === mid);
 
                 const oldState = window.AppState.matchStates[mid];
                 const newScore = `${m.goals.home}-${m.goals.away}`;
                 const newStatusShort = m.fixture.status.short;
                 const cards = document.querySelectorAll(`#match-card-${mid}`);
-                
+
                 if (!isTracked && !isFav && !isAllowed && !isCurrentMatch && !cards.length) continue;
 
-                window.AppState.renderedMatches = window.AppState.renderedMatches?.map(mc => {
-                    if (mc.fixture.id === mid) return m;
-                    return mc;
-                }) || null;
-
-                window.AppState.matchesCache = window.AppState.matchesCache?.map(mc => {
-                    if (mc.fixture.id === mid) return m;
-                    return mc;
-                }) || null;
+                window.AppState.renderedMatches = window.AppState.renderedMatches?.map(mc => (mc.fixture.id === mid ? m : mc)) || null;
+                window.AppState.matchesCache = window.AppState.matchesCache?.map(mc => (mc.fixture.id === mid ? m : mc)) || null;
 
                 if (cards.length) {
                     for (const card of cards) {
                         const statusEl = card.querySelector('.match-status');
                         const scoreEls = card.querySelectorAll('.card-score');
                         if (scoreEls.length === 2) {
-                            const h = m.goals.home ?? 0; const a = m.goals.away ?? 0;
+                            const h = m.goals.home ?? 0;
+                            const a = m.goals.away ?? 0;
                             if (scoreEls[0].textContent != h) scoreEls[0].textContent = h;
                             if (scoreEls[1].textContent != a) scoreEls[1].textContent = a;
                         }
                         if (statusEl) {
                             let statusText = m.fixture.status.long;
-                            if (['1H','HT','2H','ET','P','BT'].includes(newStatusShort)) {
+                            if (['1H', 'HT', '2H', 'ET', 'P', 'BT'].includes(newStatusShort)) {
                                 const time = newStatusShort === 'HT' ? 'HT' : (m.fixture.status.elapsed ? `<span class="live-time">${Utils.formTimeString(m.fixture.status)}</span>` : 'LIVE');
                                 if (statusEl.innerHTML !== time) statusEl.innerHTML = time;
-                            } else if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
+                            } else if (statusEl.textContent !== statusText) {
+                                statusEl.textContent = statusText;
+                            }
                         }
                     }
                 }
@@ -163,20 +167,26 @@
                     const scoreEl = document.querySelector('.details-score-box .details-score');
                     const statusEl = document.querySelector('.details-score-box .details-status');
                     if (scoreEl) {
-                        const h = m.goals.home ?? 0; const a = m.goals.away ?? 0;
+                        const h = m.goals.home ?? 0;
+                        const a = m.goals.away ?? 0;
                         const newScoreText = `${h} - ${a}`;
                         if (scoreEl.textContent != newScoreText) scoreEl.textContent = newScoreText;
                     }
                     if (statusEl) {
                         let statusText = m.fixture.status.long;
-                        if (['1H','HT','2H','ET','P','BT'].includes(newStatusShort)) {
+                        if (['1H', 'HT', '2H', 'ET', 'P', 'BT'].includes(newStatusShort)) {
                             const time = newStatusShort === 'HT' ? 'HT' : (m.fixture.status.elapsed ? `<span class="live-time">${Utils.formTimeString(m.fixture.status)}</span>` : 'LIVE');
                             if (statusEl.innerHTML !== time) statusEl.innerHTML = time;
-                        } else if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
+                        } else if (statusEl.textContent !== statusText) {
+                            statusEl.textContent = statusText;
+                        }
                     }
                 }
 
-                if (!oldState) { window.AppState.matchStates[mid] = { score: newScore, status: newStatusShort }; continue; }
+                if (!oldState) {
+                    window.AppState.matchStates[mid] = { score: newScore, status: newStatusShort };
+                    continue;
+                }
 
                 if (oldState.score !== newScore) {
                     let desc = "Goal scored!";
@@ -185,36 +195,124 @@
                         if (events && events.length) {
                             const goals = events.filter(e => e.type === 'Goal');
                             if (goals.length > 0) {
-                                const lastGoal = goals[goals.length-1];
+                                const lastGoal = goals[goals.length - 1];
                                 desc = `Goal by ${lastGoal.player.name}${lastGoal.assist.name ? ` (Assist: ${lastGoal.assist.name})` : ''}`;
                             }
                         }
-                    } catch(e) {}
-                    showAlert('GOAL!', desc, m, 'goal', !isTracked);
+                    } catch (e) {}
+                    showAlert('GOAL!', desc, m, 'goal', !isTracked && !isFav);
                 }
-                
+
                 if (newStatusShort !== oldState.status) {
                     if (['FT', 'AET', 'PEN'].includes(newStatusShort)) {
-                        const desc = `Finished: ${newScore}`;
-                        showAlert('Full Time', desc, m, 'ft', !isTracked);
+                        const desc = `Final Score: ${newScore}`;
+                        showAlert('Full Time', desc, m, 'ft', !isTracked && !isFav);
                         if (isTracked) removeTrackedMatch(mid, cards);
                     }
-                    const isActuallyLive = ['1H','HT','2H','ET','P','BT'].includes(newStatusShort);
+                    const isActuallyLive = ['1H', 'HT', '2H', 'ET', 'P', 'BT'].includes(newStatusShort);
                     const detailsHero = document.querySelector(".details-hero");
                     if (detailsHero) {
-                        if (isActuallyLive) detailsHero.classList.add("is-live");
-                        else detailsHero.classList.remove("is-live");
+                        detailsHero.classList.toggle("is-live", isActuallyLive);
                     }
                 }
                 window.AppState.matchStates[mid] = { score: newScore, status: newStatusShort };
             }
-        } catch(e) { console.warn("Live monitor check skipped", e); }
+        } catch (e) {
+            console.warn("Live monitor check skipped", e);
+        }
+    }
+
+    function updateAllTeamFavVisuals(teamId, isActive) {
+        const tid = Number(teamId);
+        // Update inline star buttons on match cards
+        document.querySelectorAll(`.team-inline-fav[data-team-id="${tid}"]`).forEach(btn => {
+            btn.classList.toggle('active', isActive);
+        });
+        document.querySelectorAll(`.card-team[data-team-id="${tid}"]`).forEach(row => {
+            row.classList.toggle('favorite', isActive);
+        });
+        // Update Match Details team hero buttons
+        document.querySelectorAll(`.details-team[data-team-id="${tid}"]`).forEach(teamBtn => {
+            teamBtn.classList.toggle('is-fav', isActive);
+            const pill = teamBtn.querySelector('.details-team-fav-pill');
+            if (pill) {
+                pill.classList.toggle('active', isActive);
+                pill.textContent = isActive ? '★ Favorite Team' : '☆ Click / OK to Fav';
+            }
+        });
+        // Update Standings table rows
+        document.querySelectorAll(`.standings-team-row[data-team-id="${tid}"]`).forEach(tr => {
+            tr.classList.toggle('favorite', isActive);
+            const star = tr.querySelector('.team-fav-star');
+            if (star) star.classList.toggle('active', isActive);
+        });
     }
 
     function setupDelegatedEvents(container) {
         container.addEventListener('click', async (e) => {
             const target = e.target;
 
+            // 1. Clickable Team Favorite anywhere (Match Cards, Match Details Hero, Standings rows, Quick-Tap Chips)
+            const favTeamTrigger = target.closest('[data-action="toggle-fav-team"]');
+            if (favTeamTrigger) {
+                e.preventDefault();
+                e.stopPropagation();
+                const id = Number(favTeamTrigger.dataset.teamId);
+                const name = favTeamTrigger.dataset.teamName || 'Team';
+                const logo = favTeamTrigger.dataset.teamLogo || `https://media.api-sports.io/football/teams/${id}.png`;
+                if (!id) return;
+
+                const res = await FavoritesService.toggle('team', { id, name, logo });
+                const isActive = Boolean(res && res.active);
+                updateAllTeamFavVisuals(id, isActive);
+                Helpers.showToast(
+                    isActive ? `★ Added ${name} to Favorites & Widget` : `Removed ${name} from Favorites`,
+                    isActive ? 'success' : 'info'
+                );
+
+                // If on Favorites page, re-render to show updated grid while preserving focus
+                if (window.AppRouter.current && window.AppRouter.current.name === 'account') {
+                    const focusedId = favTeamTrigger.dataset.teamId;
+                    await window.AppViews.renderAccountPage(container);
+                    const restored = container.querySelector(`.quick-club-chip[data-team-id="${focusedId}"]`);
+                    if (restored && window.Navigation) window.Navigation.focus(restored, false);
+                } else if (window.AppRouter.current && window.AppRouter.current.name === 'home') {
+                    const parentCard = favTeamTrigger.closest('.match-card');
+                    const cardId = parentCard ? parentCard.id : null;
+                    await window.AppViews.renderHome(container);
+                    if (cardId) {
+                        const restoredCard = document.getElementById(cardId);
+                        if (restoredCard && window.Navigation) window.Navigation.focus(restoredCard, false);
+                    }
+                }
+                return;
+            }
+
+            // 2. Clickable Quick-Tap League Chip
+            const favLeagueChip = target.closest('[data-action="toggle-fav-league"]');
+            if (favLeagueChip) {
+                e.preventDefault();
+                e.stopPropagation();
+                const id = Number(favLeagueChip.dataset.leagueId);
+                const name = favLeagueChip.dataset.leagueName || 'League';
+                const logo = favLeagueChip.dataset.leagueLogo || `https://media.api-sports.io/football/leagues/${id}.png`;
+                if (!id) return;
+
+                const res = await FavoritesService.toggle('league', { id, name, logo });
+                const isActive = Boolean(res && res.active);
+                Helpers.showToast(
+                    isActive ? `★ Added ${name} to Favorite Leagues` : `Removed ${name} from Favorite Leagues`,
+                    isActive ? 'success' : 'info'
+                );
+                if (window.AppRouter.current && window.AppRouter.current.name === 'account') {
+                    await window.AppViews.renderAccountPage(container);
+                    const restored = container.querySelector(`.quick-club-chip[data-league-id="${id}"]`);
+                    if (restored && window.Navigation) window.Navigation.focus(restored, false);
+                }
+                return;
+            }
+
+            // 3. Sort headers in Player Stats
             const sortHeader = target.closest('.sort-header');
             if (sortHeader) {
                 const table = sortHeader.closest('table');
@@ -222,14 +320,15 @@
                 const sortKey = sortHeader.dataset.sort;
                 let data = type === 'goals' ? [...window.AppState.currentLeagueStats.scorers] : [...window.AppState.currentLeagueStats.assists];
                 data.sort((a, b) => {
-                    const sA = a.statistics[0]; const sB = b.statistics[0];
+                    const sA = a.statistics[0];
+                    const sB = b.statistics[0];
                     let valA, valB;
-                    switch(sortKey) {
+                    switch (sortKey) {
                         case 'pos': valA = sA.games.position; valB = sB.games.position; break;
                         case 'app': valA = sA.games.appearences || 0; valB = sB.games.appearences || 0; break;
                         case 'rating': valA = parseFloat(sA.games.rating || 0); valB = parseFloat(sB.games.rating || 0); break;
                         case 'shots': valA = sA.shots.total || 0; valB = sB.shots.total || 0; break;
-                        case 'main': valA = type === 'goals' ? (sA.goals.total||0) : (sA.goals.assists||0); valB = type === 'goals' ? (sB.goals.total||0) : (sB.goals.assists||0); break;
+                        case 'main': valA = type === 'goals' ? (sA.goals.total || 0) : (sA.goals.assists || 0); valB = type === 'goals' ? (sB.goals.total || 0) : (sB.goals.assists || 0); break;
                     }
                     return valA < valB ? 1 : (valA > valB ? -1 : 0);
                 });
@@ -242,138 +341,122 @@
                 return;
             }
 
+            // 4. League header or Match Hero league button
+            const leagueTrigger = target.closest('[data-action="open-league"]');
+            if (leagueTrigger) {
+                e.preventDefault();
+                e.stopPropagation();
+                const id = leagueTrigger.dataset.id;
+                const season = leagueTrigger.dataset.season || Helpers.getCurrentSeason();
+                if (id) window.AppRouter.go('league', { id, season });
+                return;
+            }
+
+            // 5. League Favorite star toggle
+            const favBtn = target.closest('.fav-toggle');
+            if (favBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                const type = favBtn.dataset.type || 'league';
+                const id = Number(favBtn.dataset.id);
+                const name = favBtn.dataset.name || 'Unknown';
+                const logo = favBtn.dataset.logo || '';
+                const res = await FavoritesService.toggle(type, { id, name, logo });
+                const active = Boolean(res && res.active);
+                favBtn.classList.toggle('active', active);
+                const glyph = favBtn.querySelector('.star-glyph');
+                if (glyph) glyph.textContent = active ? '★' : '☆';
+                else favBtn.textContent = active ? '★ Favorited League' : '☆ Favorite League';
+                Helpers.showToast(active ? `★ Added ${name} to Favorites` : `Removed ${name} from Favorites`, active ? 'success' : 'info');
+                return;
+            }
+
+            // 6. Tab buttons & Track Match button
             const tabBtn = target.closest('.tab-button');
             if (tabBtn) {
                 if (tabBtn.id === 'btn-track-toggle') {
-                     const mid = Number(tabBtn.dataset.mid);
-                     if (Utils.isTracked(mid)) Utils.removeTracked(mid); else Utils.addTracked(mid);
-                     if (Utils.isTracked(mid)) tabBtn.classList.add('track-active'); else tabBtn.classList.remove('track-active');
+                    const mid = Number(tabBtn.dataset.mid);
+                    if (Utils.isTracked(mid)) {
+                        Utils.removeTracked(mid);
+                        tabBtn.classList.remove('track-active');
+                        tabBtn.textContent = 'Track Match';
+                        Helpers.showToast('Stopped tracking match alerts', 'info');
+                    } else {
+                        Utils.addTracked(mid);
+                        tabBtn.classList.add('track-active');
+                        tabBtn.textContent = '● Tracking Live Alerts';
+                        Helpers.showToast('Tracking match for live goal & FT alerts!', 'success');
+                    }
                 } else {
                     const parent = tabBtn.closest('.page-container');
                     if (parent) {
-                        parent.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+                        parent.querySelectorAll('.tab-button:not(#btn-track-toggle):not(.fav-toggle)').forEach(b => b.classList.remove('active'));
                         parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
                         tabBtn.classList.add('active');
                         const contentId = tabBtn.dataset.tab;
                         const content = parent.querySelector('#' + contentId);
-                        if (content) {
-                            content.classList.add('active');
-                            if (contentId === 'ln' && window.AppState.currentTab === 'ln') {
-                                content.classList.add('full-screen-mode');
-                                if (!content.querySelector('.fs-close-btn')) {
-                                    const closeBtn = document.createElement('button');
-                                    closeBtn.className = 'fs-close-btn focusable';
-                                    closeBtn.innerText = 'Close Full Screen';
-                                    closeBtn.tabIndex = 0;
-                                    closeBtn.onclick = (ev) => {
-                                        ev.stopPropagation(); 
-                                        content.classList.remove('full-screen-mode');
-                                        closeBtn.remove();
-                                        if (window.Navigation) window.Navigation.focus(tabBtn);
-                                    };
-                                    content.prepend(closeBtn);
-                                    setTimeout(() => { if (window.Navigation) window.Navigation.focus(closeBtn); }, 50);
-                                }
-                            } else {
-                                parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('full-screen-mode'));
-                                const existingBtn = parent.querySelector('.fs-close-btn');
-                                if (existingBtn) existingBtn.remove();
-                            }
-                        }
-                        window.AppState.currentTab = target.dataset.tab || null;
+                        if (content) content.classList.add('active');
+                        window.AppState.currentTab = contentId || null;
                     }
                 }
                 return;
             }
-            
+
+            // 7. Open Match Card
             const card = target.closest('.match-card, .bracket-match, .kb-match');
             if (card) {
                 e.preventDefault();
                 e.stopPropagation();
-                const action = card.dataset.action; 
+                const action = card.dataset.action;
                 const id = card.dataset.id;
-                
                 if (action === 'open-match' && id) window.AppRouter.go('match', id);
                 return;
             }
 
-            const leagueHeader = target.closest('.row-header-content');
-            if (leagueHeader) {
-                e.preventDefault();
-                e.stopPropagation();
-                const season = leagueHeader.dataset.season || null;
-                const action = leagueHeader.dataset.action;
-                const id = leagueHeader.dataset.id;
-                if (action === 'open-league' && id) window.AppRouter.go('league', { id, season });
-                return;
-            }
-
-            // Favorites management
+            // 8. Remove Favorite button on Account page
             const removeBtn = target.closest('.fav-remove-btn');
             if (removeBtn) {
-                e.preventDefault(); e.stopPropagation();
+                e.preventDefault();
+                e.stopPropagation();
                 const type = removeBtn.dataset.type;
                 const id = Number(removeBtn.dataset.id);
                 await FavoritesService.remove(type, id);
                 Helpers.showToast('Removed from favorites', 'info');
-
                 if (window.AppRouter.current && window.AppRouter.current.name === 'account') {
                     window.AppViews.renderAccountPage(document.getElementById('content-container'));
                 }
                 return;
             }
 
-            const playerBtn = target.closest('.fav-player-btn');
-            if (playerBtn) {
-                e.preventDefault(); e.stopPropagation();
-                const teamId = playerBtn.dataset.teamId ? Number(playerBtn.dataset.teamId) : null;
-                const leagueId = playerBtn.dataset.leagueId ? Number(playerBtn.dataset.leagueId) : null;
-                const scopeName = playerBtn.dataset.teamName || playerBtn.dataset.leagueName || '';
-                if (!teamId && !leagueId) { Helpers.showToast('Select a team/league to add players', 'error'); return; }
-                window.AppRouter.go('fav-add', { type: 'player', teamId, leagueId, scopeName });
-                return;
-            }
-
+            // 9. Search Favorite button
             const addBtn = target.closest('.add-fav-btn');
             if (addBtn) {
-                e.preventDefault(); e.stopPropagation();
+                e.preventDefault();
+                e.stopPropagation();
                 const type = addBtn.dataset.type || 'team';
                 window.AppRouter.go('fav-add', { type });
                 return;
             }
 
+            // 10. Search result card click
             const addCard = target.closest('.fav-add-card');
             if (addCard) {
-                e.preventDefault(); e.stopPropagation();
+                e.preventDefault();
+                e.stopPropagation();
                 const type = addCard.dataset.type || 'team';
                 const id = Number(addCard.dataset.id);
                 const name = addCard.dataset.name || 'Unknown';
                 const logo = addCard.dataset.logo || '';
                 const extra = addCard.dataset.extra || '';
 
-                if (FavoritesService.isFavorite(type, id)) {
-                    Helpers.showToast('Already in favorites', 'info');
-                } else {
-                    const obj = { id, name };
-                    if (type === 'player') { obj.photo = logo; if (extra) obj.team = extra; }
-                    else { obj.logo = logo; if (extra) obj.country = extra; }
-                    await FavoritesService.add(type, obj);
-                    Helpers.showToast('Added to favorites', 'success');
-                }
-
+                const obj = { id, name, logo };
+                if (extra) obj.country = extra;
+                const res = await FavoritesService.toggle(type, obj);
+                Helpers.showToast(
+                    res.active ? `★ Added ${name} to Favorites & synced to Widget!` : `Removed ${name} from Favorites`,
+                    res.active ? 'success' : 'info'
+                );
                 window.AppRouter.go('account');
-                return;
-            }
-
-            const favBtn = target.closest('.fav-toggle');
-            if (favBtn) {
-                e.preventDefault(); e.stopPropagation();
-                const type = favBtn.dataset.type;
-                const id = Number(favBtn.dataset.id);
-                const name = favBtn.dataset.name || 'Unknown';
-                const res = await FavoritesService.toggle(type, { id, name });
-                favBtn.classList.toggle('active', res && res.active);
-                Helpers.showToast(res && res.active ? 'Added to favorites' : 'Removed from favorites', res && res.active ? 'success' : 'info');
                 return;
             }
         });
@@ -381,7 +464,7 @@
 
     function initMyPCApp() {
         if (window.Navigation) window.Navigation.init();
-        
+
         const container = document.getElementById('content-container');
         if (container) setupDelegatedEvents(container);
 
@@ -391,7 +474,7 @@
             const overlay = document.getElementById('modal-overlay');
             const target = document.getElementById(id);
             if (!overlay || !target) return;
-            document.querySelectorAll('.modal-content').forEach(d => d.style.display = 'none');
+            document.querySelectorAll('.modal-content').forEach(d => { d.style.display = 'none'; });
             overlay.classList.add('visible');
             target.style.display = 'block';
             if (window.Navigation) window.Navigation.setScope(target);
@@ -401,130 +484,152 @@
             const overlay = document.getElementById('modal-overlay');
             if (overlay) overlay.classList.remove('visible');
             if (window.Navigation) {
-                window.Navigation.setScope(null); 
+                window.Navigation.setScope(null);
                 const activeNav = document.querySelector('#sidebar .active');
                 if (activeNav) window.Navigation.focus(activeNav);
             }
         };
 
-        window.AppUI = { showModal, closeModal };
+        window.AppUI = { showModal, closeModal, updateAllTeamFavVisuals };
 
         const navCalendar = document.getElementById('nav-calendar');
         if (navCalendar) navCalendar.onclick = (e) => { e.preventDefault(); showModal('date-modal'); };
 
         const navAuth = document.getElementById('nav-auth');
-        if (navAuth) navAuth.onclick = (e) => { 
-            e.preventDefault(); 
-            window.AppRouter.go('account'); 
-            setTimeout(() => {
-                const first = document.querySelector('#content-container .focusable:not([style*="display: none"])');
-                if (first && window.Navigation) window.Navigation.focus(first);
-            }, 80);
+        if (navAuth) navAuth.onclick = (e) => {
+            e.preventDefault();
+            window.AppRouter.go('account');
         };
 
         const navSettings = document.getElementById('nav-settings');
-        if (navSettings) navSettings.onclick = (e) => { 
-            e.preventDefault(); 
-            window.AppRouter.go('settings'); 
-            setTimeout(() => {
-                const first = document.querySelector('#content-container .focusable:not([style*="display: none"])');
-                if (first && window.Navigation) window.Navigation.focus(first);
-            }, 80);
+        if (navSettings) navSettings.onclick = (e) => {
+            e.preventDefault();
+            window.AppRouter.go('settings');
         };
 
         const navHome = document.getElementById('nav-home');
-        if (navHome) navHome.onclick = (e) => { 
+        if (navHome) navHome.onclick = (e) => {
             e.preventDefault();
             if (window.AppRouter.current && window.AppRouter.current.name === 'home') {
                 const content = document.querySelector('#content-container .focusable');
                 if (content && window.Navigation) window.Navigation.focus(content);
             } else {
-                window.AppRouter.go('home'); 
+                window.AppRouter.go('home');
             }
         };
 
-        const updateDate = () => {
+        const refreshDateView = () => {
             const modalDate = document.getElementById('modal-current-date');
-            if (modalDate) modalDate.textContent = Helpers.formatDate(window.AppState.currentDate);
+            if (modalDate) modalDate.textContent = Helpers.formatDisplayDate(window.AppState.currentDate);
             const dateHeader = document.getElementById('date-header');
-            if (dateHeader) dateHeader.textContent = Helpers.formatDate(window.AppState.currentDate);
+            if (dateHeader) dateHeader.textContent = Helpers.formatDisplayDate(window.AppState.currentDate);
+            window.AppState.matchesCache = null;
             window.AppRouter.go('home');
+        };
+
+        // Top Bar Date & Live Controls (Reachable with TV Remote Arrows + OK)
+        const hPrev = document.getElementById('header-btn-prev');
+        if (hPrev) hPrev.onclick = () => {
+            window.AppState.isLiveMode = false;
+            window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() - 1);
+            refreshDateView();
+        };
+
+        const hToday = document.getElementById('header-btn-today');
+        if (hToday) hToday.onclick = () => {
+            window.AppState.isLiveMode = false;
+            window.AppState.currentDate = new Date();
+            refreshDateView();
+        };
+
+        const hNext = document.getElementById('header-btn-next');
+        if (hNext) hNext.onclick = () => {
+            window.AppState.isLiveMode = false;
+            window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() + 1);
+            refreshDateView();
+        };
+
+        const hLive = document.getElementById('header-btn-live');
+        if (hLive) hLive.onclick = () => {
+            window.AppState.isLiveMode = !window.AppState.isLiveMode;
+            refreshDateView();
         };
 
         const btnPrevDay = document.getElementById('btn-prev-day');
         if (btnPrevDay) btnPrevDay.onclick = () => {
+            window.AppState.isLiveMode = false;
             window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() - 1);
-            window.AppState.matchesCache = null;
-            updateDate();
+            refreshDateView();
         };
 
         const btnNextDay = document.getElementById('btn-next-day');
         if (btnNextDay) btnNextDay.onclick = () => {
+            window.AppState.isLiveMode = false;
             window.AppState.currentDate.setDate(window.AppState.currentDate.getDate() + 1);
-            window.AppState.matchesCache = null;
-            updateDate();
+            refreshDateView();
         };
 
         const btnLiveToggle = document.getElementById('btn-live-toggle');
         if (btnLiveToggle) btnLiveToggle.onclick = () => {
             window.AppState.isLiveMode = !window.AppState.isLiveMode;
-            window.AppState.matchesCache = null;
-            updateDate();
+            closeModal();
+            refreshDateView();
         };
 
-        document.querySelectorAll('.modal-close').forEach(b => b.onclick = closeModal);
+        document.querySelectorAll('.modal-close').forEach(b => { b.onclick = closeModal; });
 
-        window.AppRouter.render();
+        // Check if launched via deep link from Widget or Push Notification
+        if (typeof MyPC !== 'undefined' && MyPC.launch && MyPC.launch.path) {
+            if (!window.AppRouter.routeDeepLink(MyPC.launch.path)) {
+                window.AppRouter.render();
+            }
+        } else {
+            window.AppRouter.render();
+        }
+
         if (Utils && Utils.updateClock) {
             Utils.updateClock();
             setInterval(() => { Utils.updateClock(); }, 60000);
         }
     }
 
-    // --- MyPC SDK Integration (Mandatory lifecycle) ---
     if (typeof MyPC !== 'undefined') {
         MyPC.init({
             onInit: async function(info) {
-                console.log("MyPC: onInit called", info);
-                
-                // Profile awareness & seamless Firebase synchronization
                 const username = (info && info.profile && info.profile.name) ? info.profile.name : "Player";
                 State.currentUser.name = username;
 
-                // Load persistent config for this profile (seamlessly syncing with Football App Firebase)
                 await Storage.loadUserConfig(username);
 
-                // Initialize UI
                 initMyPCApp();
 
-                // Setup custom My PC pause menu items
                 MyPC.setMenu([
                     { id: 'today', label: 'Today Matches' },
                     { id: 'live-only', label: 'Live Matches Only' },
-                    { id: 'favorites', label: 'My Teams & Leagues' },
-                    { id: 'settings', label: 'Button Mappings & Settings' }
+                    { id: 'favorites', label: 'My Favorite Teams' },
+                    { id: 'settings', label: 'Controller & Widget Settings' }
                 ]);
 
-                // Signal ready to My PC shell
                 MyPC.ready();
             },
             onStart: function() {
-                console.log("MyPC: onStart called");
                 startLiveTimers();
                 checkLiveMatches();
             },
             onPause: function() {
-                console.log("MyPC: onPause called");
                 stopLiveTimers();
             },
             onResume: function() {
-                console.log("MyPC: onResume called");
                 startLiveTimers();
                 checkLiveMatches();
             },
             onDestroy: function() {
-                console.log("MyPC: onDestroy called");
                 stopLiveTimers();
+            },
+            onLaunch: function(launch) {
+                if (launch && launch.path && window.AppRouter) {
+                    window.AppRouter.routeDeepLink(launch.path);
+                }
             },
             onInput: function(action, pressed, repeat, dev) {
                 if (window.Navigation && typeof window.Navigation.handleAction === 'function') {
@@ -549,7 +654,6 @@
             }
         });
 
-        // Controller first: listen to all gamepad buttons via MyPC.gamepad (API 9)
         if (MyPC.gamepad && typeof MyPC.gamepad.on === 'function') {
             MyPC.gamepad.on('button', function(index, pressed, value, dev, name) {
                 if (!pressed) return;
@@ -563,7 +667,6 @@
             });
         }
     } else {
-        // Fallback if SDK script failed or running in non-SDK preview
         document.addEventListener('DOMContentLoaded', () => {
             initMyPCApp();
             startLiveTimers();
