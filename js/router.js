@@ -174,7 +174,9 @@
             try {
                 const favTeams = new Set((State.appConfig.favorite_teams || []).map(t => Number(t.id)));
                 const favLeagues = new Set((State.appConfig.favorite_leagues || []).map(l => Number(l.id)));
-                const allowedLeagues = State.globalSettings.allowed_leagues || [];
+                const allowedLeagues = (State.globalSettings.allowed_leagues && State.globalSettings.allowed_leagues.length > 0)
+                    ? State.globalSettings.allowed_leagues
+                    : (State.appConfig.allowed_leagues || []);
                 const allowedIds = new Set(allowedLeagues.map(l => Number(l.id)));
                 const hasRestrictions = allowedIds.size > 0;
                 const teamFavorites = []; const leagueMatches = []; 
@@ -184,13 +186,12 @@
                     const isFavLeague = favLeagues.has(Number(m.league.id));
                     const isAllowed = allowedIds.has(Number(m.league.id));
                     if (isFavTeam) teamFavorites.push(m);
-                    if (hasRestrictions) { if (isAllowed || isFavLeague || isFavTeam) leagueMatches.push(m); } 
-                    else leagueMatches.push(m);
+                    if (hasRestrictions) {
+                        if (isAllowed || isFavLeague || isFavTeam) leagueMatches.push(m);
+                    } else {
+                        leagueMatches.push(m);
+                    }
                 });
-
-                if (leagueMatches.length === 0 && matches.length > 0) {
-                    leagueMatches.push(...matches);
-                }
 
                 const rows = [];
                 // Favorites rail: show only when there are favorite matches to display.

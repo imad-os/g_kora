@@ -154,10 +154,14 @@
                         if (statusEl) {
                             let statusText = m.fixture.status.long;
                             if (['1H', 'HT', '2H', 'ET', 'P', 'BT'].includes(newStatusShort)) {
-                                const time = newStatusShort === 'HT' ? 'HT' : (m.fixture.status.elapsed ? `<span class="live-time">${Utils.formTimeString(m.fixture.status)}</span>` : 'LIVE');
-                                if (statusEl.innerHTML !== time) statusEl.innerHTML = time;
-                            } else if (statusEl.textContent !== statusText) {
-                                statusEl.textContent = statusText;
+                                const timeText = newStatusShort === 'HT' ? 'Half Time' : (m.fixture.status.elapsed ? Utils.formTimeString(m.fixture.status) : 'LIVE');
+                                statusEl.classList.add('live-time');
+                                card.classList.add('is-live');
+                                if (statusEl.textContent !== timeText) statusEl.textContent = timeText;
+                            } else {
+                                statusEl.classList.remove('live-time');
+                                card.classList.remove('is-live');
+                                if (statusEl.textContent !== statusText) statusEl.textContent = statusText;
                             }
                         }
                     }
