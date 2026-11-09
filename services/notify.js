@@ -1,7 +1,26 @@
-// services/notify.js
-// My PC Background Notification Service for Football Live
-// Reads the user's saved favorite teams, favorite leagues, and tracked matches from Firestore REST bridge,
-// and sends push alerts with team logos (image: https://...) for kick-off, goals/score changes, and full time.
+/**
+ * ============================================================================
+ * Football Live - My PC Background Notification Service (services/notify.js)
+ * ============================================================================
+ * WHAT THIS SERVICE DOES:
+ * 1. Authenticates with the Football Live Firestore REST Bridge to load the
+ *    user's live saved configuration (`favorite_teams`, `favorite_leagues`,
+ *    `tracked_matches`, `allowed_leagues`, and `serviceSettings`).
+ * 2. Filters & orders live matches according to the user's configured
+ *    Notification Service Selection & Priority (`serviceSettings.sources` &
+ *    `serviceSettings.priority`):
+ *      - `tracked_matches`: Explicitly tracked matches (marked with red dot 🔴)
+ *      - `favorite_teams`: Matches featuring the user's Favorite Teams (⭐)
+ *      - `favorite_leagues`: Matches from the user's Favorite Leagues (❤️)
+ *      - `allowed_leagues`: Matches from global Allowed Leagues
+ * 3. Emits a strictly 2-row notification whenever a match starts, changes score
+ *    (Goal), or finishes (Full Time):
+ *      |-------------------|
+ *      | RM 0 - 1 BRS      |  <- Row 1 (`title` / `titleHtml`): Match result with
+ *      | Yamal 13'         |     team logos and the changed side in green (#4cd964)
+ *      |-------------------|  <- Row 2 (`message`): Goal scorer & minute ("Yamal 13'")
+ * ============================================================================
+ */
 
 const FB_API_KEY = 'AIzaSyClgzoMBEKizx-r7abMvAmLgGpk_p748IU';
 const FB_PROJECT = 'iptv-8b60c';
@@ -59,6 +78,39 @@ async function fetchBridgeUserConfigs(ctxFetch) {
   }
 }
 
+function shortTeamCode(name) {
+  const clean = String(name || 'TM').trim();
+  const known = {
+    'paris saint germain': 'PSG',
+    'paris saint-germain': 'PSG',
+    'real madrid': 'RM',
+    'barcelona': 'BRS',
+    'fc barcelona': 'BRS',
+    'manchester city': 'MCI',
+    'manchester united': 'MUN',
+    'ac milan': 'MIL',
+    'inter': 'INT',
+    'inter milan': 'INT',
+    'juventus': 'JUV',
+    'arsenal': 'ARS',
+    'liverpool': 'LIV',
+    'chelsea': 'CHE',
+    'bayern munich': 'BAY',
+    'bayern münchen': 'BAY',
+    'borussia dortmund': 'BVB',
+    'atletico madrid': 'ATM',
+    'atlético madrid': 'ATM',
+    'morocco': 'MAR'
+  };
+  const lower = clean.toLowerCase();
+  if (known[lower]) return known[lower];
+  const parts = clean.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2 && parts[0].length <= 3) {
+    return parts[1].slice(0, 3).toUpperCase();
+  }
+  return clean.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || clean.slice(0, 3).toUpperCase();
+}
+
 export default async function (ctx) {
   const st = ctx.state || { matchStates: {} };
   if (!st.matchStates) st.matchStates = {};
@@ -68,22 +120,33 @@ export default async function (ctx) {
   const bridgeData = await fetchBridgeUserConfigs(ctx.fetch);
   const mergedFavTeams = [...(appConfig.favorite_teams || [])];
   const mergedFavLeagues = [...(appConfig.favorite_leagues || [])];
+  const mergedAllowedLeagues = [...(appConfig.allowed_leagues || [])];
   const trackedMatchIds = new Set();
+
+  let activeServiceSettings = null;
 
   if (bridgeData) {
     if (bridgeData.latest) {
       if (Array.isArray(bridgeData.latest.favorite_teams)) mergedFavTeams.push(...bridgeData.latest.favorite_teams);
       if (Array.isArray(bridgeData.latest.favorite_leagues)) mergedFavLeagues.push(...bridgeData.latest.favorite_leagues);
+      if (Array.isArray(bridgeData.latest.allowed_leagues)) mergedAllowedLeagues.push(...bridgeData.latest.allowed_leagues);
       if (Array.isArray(bridgeData.latest.tracked_matches)) {
         bridgeData.latest.tracked_matches.forEach(id => trackedMatchIds.add(Number(id)));
+      }
+      if (bridgeData.latest.serviceSettings) {
+        activeServiceSettings = bridgeData.latest.serviceSettings;
       }
     }
     if (bridgeData.profiles) {
       for (const pCfg of Object.values(bridgeData.profiles)) {
         if (pCfg && Array.isArray(pCfg.favorite_teams)) mergedFavTeams.push(...pCfg.favorite_teams);
         if (pCfg && Array.isArray(pCfg.favorite_leagues)) mergedFavLeagues.push(...pCfg.favorite_leagues);
+        if (pCfg && Array.isArray(pCfg.allowed_leagues)) mergedAllowedLeagues.push(...pCfg.allowed_leagues);
         if (pCfg && Array.isArray(pCfg.tracked_matches)) {
           pCfg.tracked_matches.forEach(id => trackedMatchIds.add(Number(id)));
+        }
+        if (!activeServiceSettings && pCfg && pCfg.serviceSettings) {
+          activeServiceSettings = pCfg.serviceSettings;
         }
       }
     }
@@ -101,9 +164,29 @@ export default async function (ctx) {
     );
   }
 
+  // Resolve Service Selection & Priority configuration
+  const defaultPriority = ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
+  const priorityOrder = Array.isArray(activeServiceSettings?.priority) && activeServiceSettings.priority.length > 0
+    ? activeServiceSettings.priority.filter(k => defaultPriority.includes(k))
+    : defaultPriority;
+  defaultPriority.forEach(k => {
+    if (!priorityOrder.includes(k)) priorityOrder.push(k);
+  });
+
+  const sources = Object.assign(
+    {
+      tracked_matches: true,
+      favorite_teams: true,
+      favorite_leagues: false,
+      allowed_leagues: false
+    },
+    activeServiceSettings?.sources || {}
+  );
+
   const favTeamIds = new Set(mergedFavTeams.map(t => Number(t && t.id)).filter(Boolean));
   const favTeamNames = mergedFavTeams.map(t => String((t && t.name) || '').toLowerCase().trim()).filter(Boolean);
   const favLeagueIds = new Set(mergedFavLeagues.map(l => Number(l && l.id)).filter(Boolean));
+  const allowedLeagueIds = new Set(mergedAllowedLeagues.map(l => Number(l && l.id)).filter(Boolean));
 
   function normClub(s) {
     return String(s || '')
@@ -138,6 +221,34 @@ export default async function (ctx) {
     return '';
   }
 
+  function getMatchPriorityRank(m, mid) {
+    const checks = {
+      tracked_matches: trackedMatchIds.has(mid) || Boolean(st.matchStates[mid]),
+      favorite_teams: isTeamFav(m?.teams?.home) || isTeamFav(m?.teams?.away),
+      favorite_leagues: favLeagueIds.has(Number(m?.league?.id)),
+      allowed_leagues: allowedLeagueIds.has(Number(m?.league?.id))
+    };
+    for (let i = 0; i < priorityOrder.length; i++) {
+      const key = priorityOrder[i];
+      if (sources[key] && checks[key]) return i;
+    }
+    return -1;
+  }
+
+  function extractLastGoalScorer(m, elapsedFallback) {
+    const evs = Array.isArray(m?.events) ? m.events : [];
+    const goals = evs.filter(e => e && e.type === 'Goal');
+    if (goals.length > 0) {
+      const last = goals[goals.length - 1];
+      const player = last?.player?.name || 'Goal';
+      const min = last?.time?.elapsed
+        ? `${last.time.elapsed}${last.time.extra ? '+' + last.time.extra : ''}'`
+        : `${elapsedFallback || 0}'`;
+      return `${player} ${min}`;
+    }
+    return `Goal ${elapsedFallback || 0}'`;
+  }
+
   try {
     const keysToTry = appConfig.apiKey ? [appConfig.apiKey, ...API_KEYS] : API_KEYS;
     let liveMatches = null;
@@ -164,28 +275,36 @@ export default async function (ctx) {
         const mid = Number(m?.fixture?.id);
         if (!mid) continue;
 
+        const priorityRank = getMatchPriorityRank(m, mid);
+        if (priorityRank === -1) continue;
+
         const home = m.teams?.home?.name || 'Home';
         const away = m.teams?.away?.name || 'Away';
+        const homeCode = shortTeamCode(home);
+        const awayCode = shortTeamCode(away);
+        const homeLogo = /^https:\/\//.test(m.teams?.home?.logo || '') ? m.teams.home.logo : '';
+        const awayLogo = /^https:\/\//.test(m.teams?.away?.logo || '') ? m.teams.away.logo : '';
+
         const homeScore = m.goals?.home ?? 0;
         const awayScore = m.goals?.away ?? 0;
         const currentScore = `${homeScore}-${awayScore}`;
         const currentStatus = m.fixture?.status?.short || 'LIVE';
-        const elapsed = m.fixture?.status?.elapsed || '';
+        const elapsed = m.fixture?.status?.elapsed || 1;
         const leagueName = m.league?.name || 'Live Match';
-
-        const isFav = isTeamFav(m.teams?.home) || isTeamFav(m.teams?.away) || favLeagueIds.has(Number(m.league?.id));
-        const isTracked = trackedMatchIds.has(mid) || Boolean(st.matchStates[mid]);
-
-        if (!isFav && !isTracked) continue;
 
         const prev = st.matchStates[mid];
 
+        // 1. Kick-Off (2 rows: Row 1 = "RM 0 - 0 BRS", Row 2 = "Kick-Off 1'")
         if (!prev) {
           const logo = pickLogo(m, null);
           const item = {
             username: '*',
-            title: `▶️ Kick-Off: ${home} vs ${away}`.slice(0, 60),
-            message: `${leagueName} · Live now (${homeScore} - ${awayScore})`.slice(0, 200),
+            title: `${homeCode} ${homeScore} - ${awayScore} ${awayCode}`.slice(0, 60),
+            message: `Kick-Off ${elapsed}'`.slice(0, 100),
+            icon: homeLogo || logo,
+            awayLogo: awayLogo || undefined,
+            color: '#4cd964',
+            priorityRank,
             link: `football-live:match/${mid}`
           };
           if (logo) item.image = logo;
@@ -204,28 +323,51 @@ export default async function (ctx) {
           continue;
         }
 
-        // Detect Goal / Score change and highlight the scoring team's crest logo
+        // 2. Goal / Score Change (Strictly 2 rows:
+        //    Row 1: "RM 0 - 🟢 1 BRS" (changed side in green + team logos)
+        //    Row 2: "Yamal 13'" (scorer & minute))
         if (prev.score !== currentScore) {
           const scoringSide = homeScore > (prev.homeScore ?? 0) ? 'home' : (awayScore > (prev.awayScore ?? 0) ? 'away' : null);
-          const scorerTeam = scoringSide === 'home' ? home : (scoringSide === 'away' ? away : '');
           const logo = pickLogo(m, scoringSide);
+          const row1Result = scoringSide === 'home'
+            ? `🟢 ${homeCode} ${homeScore} - ${awayScore} ${awayCode}`
+            : (scoringSide === 'away'
+              ? `${homeCode} ${homeScore} - 🟢 ${awayScore} ${awayCode}`
+              : `${homeCode} ${homeScore} - ${awayScore} ${awayCode}`);
+
+          const titleHtml = scoringSide === 'home'
+            ? `<span style="color:#4cd964;font-weight:700">${homeLogo ? `<img src="${homeLogo}" width="20" height="20"> ` : ''}${homeScore}</span> - ${awayScore}${awayLogo ? ` <img src="${awayLogo}" width="20" height="20">` : ''}`
+            : `<span style="color:#fff">${homeLogo ? `<img src="${homeLogo}" width="20" height="20"> ` : ''}${homeScore}</span> - <span style="color:#4cd964;font-weight:700">${awayScore}${awayLogo ? ` <img src="${awayLogo}" width="20" height="20">` : ''}</span>`;
+
+          const row2Scorer = extractLastGoalScorer(m, elapsed);
+
           const item = {
             username: '*',
-            title: `⚽ GOAL! ${home} ${homeScore} - ${awayScore} ${away}`.slice(0, 60),
-            message: `${scorerTeam ? scorerTeam + ' scores! · ' : ''}${leagueName}${elapsed ? ' · ' + elapsed + "'" : ''}`.slice(0, 200),
+            title: row1Result.slice(0, 60),
+            titleHtml,
+            message: row2Scorer.slice(0, 100),
+            icon: homeLogo || logo,
+            awayLogo: awayLogo || undefined,
+            changedSide: scoringSide || 'away',
+            color: '#4cd964',
+            priorityRank,
             link: `football-live:match/${mid}`
           };
           if (logo) item.image = logo;
           notifications.push(item);
         }
 
-        // Detect Half Time or Full Time
+        // 3. Full Time (Strictly 2 rows: Row 1 = "RM 0 - 1 BRS", Row 2 = "FT 90'")
         if (['FT', 'AET', 'PEN'].includes(currentStatus) && prev.status !== currentStatus) {
           const logo = pickLogo(m, null);
           const item = {
             username: '*',
-            title: `🏁 Full Time: ${home} ${homeScore} - ${awayScore} ${away}`.slice(0, 60),
-            message: `Final Score · ${leagueName}`.slice(0, 200),
+            title: `${homeCode} ${homeScore} - ${awayScore} ${awayCode}`.slice(0, 60),
+            message: `${currentStatus} ${elapsed || 90}'`.slice(0, 100),
+            icon: homeLogo || logo,
+            awayLogo: awayLogo || undefined,
+            color: '#4cd964',
+            priorityRank,
             link: `football-live:match/${mid}`
           };
           if (logo) item.image = logo;
@@ -247,6 +389,9 @@ export default async function (ctx) {
   } catch (e) {
     // Graceful recovery on network timeout
   }
+
+  // Sort notifications by the user's configured priority order
+  notifications.sort((a, b) => (a.priorityRank ?? 99) - (b.priorityRank ?? 99));
 
   // Prune old match states so state JSON stays well under 10,000 chars
   const stateKeys = Object.keys(st.matchStates);

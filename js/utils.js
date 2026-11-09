@@ -126,12 +126,62 @@ window.Utils = (function() {
         sounds.goal = document.getElementById('snd-goal');
         sounds.card = document.getElementById('snd-whistle');
         sounds.ft = document.getElementById('snd-whistle');
+        sounds.track = document.getElementById('snd-whistle');
+    }
+
+    function playSynthTone(type) {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (type === 'track') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, now); // D5
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.14); // A5
+                gain.gain.setValueAtTime(0.18, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+                osc.start(now);
+                osc.stop(now + 0.23);
+            } else if (type === 'untrack') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.exponentialRampToValueAtTime(349.23, now + 0.14); // F4
+                gain.gain.setValueAtTime(0.14, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.21);
+            } else if (type === 'goal') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now);
+                osc.frequency.setValueAtTime(659.25, now + 0.1);
+                osc.frequency.setValueAtTime(783.99, now + 0.2);
+                gain.gain.setValueAtTime(0.22, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+                osc.start(now);
+                osc.stop(now + 0.46);
+            } else {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(660, now);
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.21);
+            }
+            setTimeout(() => { try { ctx.close(); } catch (e) {} }, 600);
+        } catch (e) {}
     }
 
     function playSound(type) {
         if (!sounds.goal) initSounds();
+        playSynthTone(type);
         try {
-            const audio = sounds[type];
+            const audio = sounds[type] || (type === 'track' ? sounds.card : null);
             if (!audio) return;
             audio.pause();
             audio.currentTime = 0;
@@ -189,6 +239,64 @@ window.Utils = (function() {
         return t;
     }
 
+    function toggleTrackVisual(mid, triggerEl = null) {
+        const num = Number(mid);
+        if (!num) return false;
+        const currentlyTracked = isTracked(num);
+        const cards = document.querySelectorAll(`#match-card-${num}, .match-card[data-id="${num}"], .bracket-match[data-id="${num}"], .kb-match[data-id="${num}"]`);
+
+        if (currentlyTracked) {
+            removeTracked(num);
+            playSound('untrack');
+            cards.forEach(card => {
+                const ind = card.querySelector('.track-indicator');
+                if (ind) ind.remove();
+                card.classList.remove('track-pulse-anim');
+            });
+            const detailsBtn = document.getElementById('btn-track-toggle');
+            if (detailsBtn && Number(detailsBtn.dataset.id) === num) {
+                detailsBtn.classList.remove('track-active');
+            }
+            if (window.AppServices?.Helpers?.showToast) {
+                window.AppServices.Helpers.showToast('Stopped tracking match', 'info');
+            }
+            return false;
+        } else {
+            addTracked(num);
+            playSound('track');
+            cards.forEach(card => {
+                let dot = card.querySelector('.track-indicator');
+                if (!dot) {
+                    dot = document.createElement('div');
+                    dot.className = 'track-indicator pop-in';
+                    card.insertBefore(dot, card.firstChild);
+                } else {
+                    dot.classList.remove('pop-in');
+                    void dot.offsetWidth;
+                    dot.classList.add('pop-in');
+                }
+                card.classList.remove('track-pulse-anim');
+                void card.offsetWidth;
+                card.classList.add('track-pulse-anim');
+                setTimeout(() => card.classList.remove('track-pulse-anim'), 850);
+            });
+            if (triggerEl && !cards.length) {
+                triggerEl.classList.remove('track-pulse-anim');
+                void triggerEl.offsetWidth;
+                triggerEl.classList.add('track-pulse-anim');
+                setTimeout(() => triggerEl.classList.remove('track-pulse-anim'), 850);
+            }
+            const detailsBtn = document.getElementById('btn-track-toggle');
+            if (detailsBtn && Number(detailsBtn.dataset.id) === num) {
+                detailsBtn.classList.add('track-active');
+            }
+            if (window.AppServices?.Helpers?.showToast) {
+                window.AppServices.Helpers.showToast('🔴 Tracking match for live goal & FT alerts!', 'success');
+            }
+            return true;
+        }
+    }
+
     function isSoon(m) {
         const matchTime = new Date(m.fixture.date).getTime();
         const now = Date.now();
@@ -219,6 +327,7 @@ window.Utils = (function() {
         isTracked,
         removeTracked,
         addTracked,
+        toggleTrackVisual,
         saveTrackedMatches,
         isRefreshNeeeded,
         fullDate,

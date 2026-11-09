@@ -10,6 +10,30 @@ const Navigation = (function() {
     let scrollHold = { active: false, el: null, dir: 0, raf: 0, lastTs: 0 };
     let lastActionTimestamps = {};
 
+    function normalizeRemoteOrKey(e) {
+        const code = e.keyCode || e.which;
+        const key = e.key || '';
+        if (code === 33 || code === 427 || key === 'PageUp' || key === 'ChannelUp') return 'pageUp';
+        if (code === 34 || code === 428 || key === 'PageDown' || key === 'ChannelDown') return 'pageDown';
+        if (code === 403 || key === 'ColorF0Red' || code === 416 || key === 'MediaRecord') return 'red';
+        if (code === 404 || key === 'ColorF1Green') return 'green';
+        if (code === 405 || key === 'ColorF2Yellow') return 'yellow';
+        if (code === 406 || key === 'ColorF3Blue') return 'blue';
+        if (code === 457 || key === 'Info') return 'info';
+        if (key === 'x' || key === 'X') return 'run';
+        if (key === 'y' || key === 'Y') return 'y';
+        if (key === 'ArrowRight' || code === 39) return 'right';
+        if (key === 'ArrowLeft' || code === 37) return 'left';
+        if (key === 'ArrowUp' || code === 38) return 'up';
+        if (key === 'ArrowDown' || code === 40) return 'down';
+        if (key === 'Enter' || code === 13) return 'ok';
+        if (key === ' ' || code === 32) return 'Space';
+        if (key && key.length === 1) return key.toUpperCase();
+        if (key && key !== 'Unidentified') return key;
+        if (code) return `Key_${code}`;
+        return '';
+    }
+
     function initKeyboardBridge() {
         function onKey(e, isDown) {
             if (window.ButtonMapper && typeof window.ButtonMapper.isListening === 'function' && window.ButtonMapper.isListening()) {
@@ -21,19 +45,10 @@ const Navigation = (function() {
                     window.ButtonMapper.cancel(false);
                     return;
                 }
-                let mappedKey = e.key;
-                if (code === 33 || code === 427 || e.key === 'PageUp') mappedKey = 'pageUp';
-                else if (code === 34 || code === 428 || e.key === 'PageDown') mappedKey = 'pageDown';
-                else if (e.key === 'x' || e.key === 'X') mappedKey = 'run';
-                else if (e.key === 'y' || e.key === 'Y') mappedKey = 'y';
-                else if (e.key === 'ArrowRight' || code === 39) mappedKey = 'right';
-                else if (e.key === 'ArrowLeft' || code === 37) mappedKey = 'left';
-                else if (e.key === 'ArrowUp' || code === 38) mappedKey = 'up';
-                else if (e.key === 'ArrowDown' || code === 40) mappedKey = 'down';
-                else if (e.key === 'Enter' || code === 13) mappedKey = 'ok';
-                else if (e.key === ' ' || code === 32) mappedKey = 'Space';
-                else if (e.key && e.key.length === 1) mappedKey = e.key.toUpperCase();
-                window.ButtonMapper.recordInput(mappedKey, 'keys');
+                const mappedKey = normalizeRemoteOrKey(e);
+                if (mappedKey) {
+                    window.ButtonMapper.recordInput(mappedKey, 'keys');
+                }
                 return;
             }
 
@@ -52,15 +67,22 @@ const Navigation = (function() {
             else if (key === 'Escape' || code === 27 || code === 10009 || (!isTextInput && (key === 'Backspace' || code === 8)) || key === 'XF86Back') action = 'cancel';
             else if (key === 'PageUp' || code === 33 || code === 427 || (!isTextInput && (key === 'e' || key === 'E'))) action = 'pageUp';
             else if (key === 'PageDown' || code === 34 || code === 428 || (!isTextInput && (key === 'q' || key === 'Q'))) action = 'pageDown';
-            else if (!isTextInput && (key === 'x' || key === 'X')) action = 'run';
-            else if (!isTextInput && (key === 'y' || key === 'Y' || key === 'c' || key === 'C')) action = 'y';
+            else if (!isTextInput && (key === 'x' || key === 'X' || key === 't' || key === 'T' || code === 403 || key === 'ColorF0Red' || code === 416 || key === 'MediaRecord')) action = 'run';
+            else if (!isTextInput && (key === 'y' || key === 'Y' || key === 'c' || key === 'C' || code === 405 || key === 'ColorF2Yellow')) action = 'y';
             else if (!isTextInput && (key === 'm' || key === 'M' || key === 'Tab' || code === 9)) action = 'menu';
 
+            // Also check if the pressed key matches any custom user-mapped button in Settings
+            if (!isTextInput) {
+                const candidate = normalizeRemoteOrKey(e);
+                const mappings = window.AppServices?.State?.appConfig?.buttonMappings || {};
+                if (candidate && Object.values(mappings).some(m => matchesMapping(m, candidate))) {
+                    action = candidate;
+                }
+            }
+
             if (action) {
-                if (['left', 'right', 'up', 'down', 'ok', 'pageUp', 'pageDown', 'menu', 'run', 'y'].includes(action) || code === 10009) {
-                    if (!isTextInput || action === 'cancel') {
-                        e.preventDefault();
-                    }
+                if (!isTextInput || action === 'cancel') {
+                    e.preventDefault();
                 }
                 handleAction(action, isDown, e.repeat, 'keys');
             }
@@ -387,8 +409,8 @@ const Navigation = (function() {
         if (c === a) return true;
         if ((c === 'pageup' || c === 'rb') && (a === 'pageup' || a === 'rb')) return true;
         if ((c === 'pagedown' || c === 'lb') && (a === 'pagedown' || a === 'lb')) return true;
-        if ((c === 'run' || c === 'x') && (a === 'run' || a === 'x')) return true;
-        if (c === 'y' && a === 'y') return true;
+        if ((c === 'run' || c === 'x' || c === 'red' || c === 't') && (a === 'run' || a === 'x' || a === 'red' || a === 't')) return true;
+        if ((c === 'y' || c === 'yellow') && (a === 'y' || a === 'yellow')) return true;
         return false;
     }
 
@@ -491,24 +513,18 @@ const Navigation = (function() {
             return;
         }
 
-        // Track Match Toggle
+        // Track Match Toggle (works on any focused match card without entering match screen, and on Match Details)
         if (matchesMapping(mappings.trackToggle, action)) {
-            if (current && current.classList.contains('match-card') && current.dataset.id) {
-                const mid = parseInt(current.dataset.id);
-                if (mid && window.Utils) {
-                    if (window.Utils.isTracked(mid)) {
-                        window.Utils.removeTracked(mid);
-                        const ind = current.querySelector('.track-indicator');
-                        if (ind) ind.remove();
-                        window.AppServices.Helpers.showToast('Stopped tracking match', 'info');
-                    } else {
-                        window.Utils.addTracked(mid);
-                        const dot = document.createElement('div');
-                        dot.className = 'track-indicator';
-                        current.appendChild(dot);
-                        window.AppServices.Helpers.showToast('Tracking match for live goal alerts!', 'success');
-                    }
-                }
+            const cardEl = current && current.closest
+                ? current.closest('.match-card, .bracket-match, .kb-match')
+                : (current && current.classList && current.classList.contains('match-card') ? current : null);
+
+            const mid = cardEl && cardEl.dataset && cardEl.dataset.id
+                ? parseInt(cardEl.dataset.id, 10)
+                : (window.AppState && window.AppState.currentMatchId ? Number(window.AppState.currentMatchId) : 0);
+
+            if (mid && window.Utils && typeof window.Utils.toggleTrackVisual === 'function') {
+                window.Utils.toggleTrackVisual(mid, cardEl || current);
                 return;
             }
         }

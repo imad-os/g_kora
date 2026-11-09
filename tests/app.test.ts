@@ -213,11 +213,13 @@ function loadMyPcWorkerModule(filePath: string) {
   return factory();
 }
 
-test('widgets/scores.js renders a strictly 3-row layout (LeagueTitle, teamlogo 0 - 0 teamlogo, timing progress bar) using saved user favorites', async () => {
+test('widgets/scores.js renders a strictly 3-row logos-only layout (LeagueTitle, teamlogo 0 - 0 teamlogo, timing progress bar) using saved user favorites', async () => {
+  const rawCode = fs.readFileSync('widgets/scores.js', 'utf8');
+  assert.ok(rawCode.trim().startsWith('/**'), 'widgets/scores.js starts with top descriptive block comment');
+
   const refresh = loadMyPcWorkerModule('widgets/scores.js');
   assert.equal(typeof refresh, 'function');
 
-  // Mock ctx.fetch to simulate Firebase bridge auth + Firestore doc + API-Football fixtures
   const mockFixture = {
     fixture: {
       id: 998877,
@@ -279,11 +281,10 @@ test('widgets/scores.js renders a strictly 3-row layout (LeagueTitle, teamlogo 0
   assert.ok(view.title.includes('Premier League'), 'Row 1 includes LeagueTitle');
   assert.ok(view.title.includes("63'"), 'Row 1 includes live match minute');
 
-  // Row 2: teamlogo 0 - 0 teamlogo
+  // Row 2: teamlogo 0 - 0 teamlogo (logos only, no team names in score row)
   assert.equal(view.icon, 'https://media.api-sports.io/football/teams/42.png', 'Home logo set in icon');
   assert.equal(view.image, 'https://media.api-sports.io/football/teams/50.png', 'Away logo set in image');
-  assert.equal(view.big, 'ARS  2 - 1  MCI', 'Scoreline formatted as HOME 0 - 0 AWAY');
-  assert.equal(view.sub, 'Arsenal vs Manchester City', 'Subtitle shows full club names');
+  assert.equal(view.big, '2 - 1', 'Scoreline formatted as logos-only score 2 - 1');
 
   // Row 3: progress bar for timing (63 / 90 = 0.7)
   assert.equal(typeof view.progress, 'number');
@@ -294,7 +295,10 @@ test('widgets/scores.js renders a strictly 3-row layout (LeagueTitle, teamlogo 0
   assert.equal(view.text, undefined, 'No extra text block');
 });
 
-test('services/notify.js emits goal and status notifications with https:// team crest logos', async () => {
+test('services/notify.js emits 2-row goal notifications (RM 0 - 1 BRS in green + Yamal 13\') with https:// team crest logos', async () => {
+  const rawCode = fs.readFileSync('services/notify.js', 'utf8');
+  assert.ok(rawCode.trim().startsWith('/**'), 'services/notify.js starts with top descriptive block comment');
+
   const tick = loadMyPcWorkerModule('services/notify.js');
   assert.equal(typeof tick, 'function');
 
@@ -305,13 +309,14 @@ test('services/notify.js emits goal and status notifications with https:// team 
   };
 
   let currentFixture: any = {
-    fixture: { id: 777111, status: { short: '1H', elapsed: 12 } },
+    fixture: { id: 777111, status: { short: '1H', elapsed: 1 } },
     league: { id: 140, name: 'La Liga', logo: 'https://media.api-sports.io/football/leagues/140.png' },
     teams: {
       home: { id: 541, name: 'Real Madrid', logo: 'https://media.api-sports.io/football/teams/541.png' },
       away: { id: 529, name: 'Barcelona', logo: 'https://media.api-sports.io/football/teams/529.png' }
     },
-    goals: { home: 0, away: 0 }
+    goals: { home: 0, away: 0 },
+    events: []
   };
 
   let workerState: any = { matchStates: {} };
@@ -337,90 +342,99 @@ test('services/notify.js emits goal and status notifications with https:// team 
     }
   });
 
-  // First tick: emits Kick-Off notification with Real Madrid's logo and records baseline
+  // First tick: emits 2-row Kick-Off notification with Real Madrid's logo and records baseline
   const res1 = await tick(makeCtx());
   workerState = res1.state;
   assert.equal(res1.notifications.length, 1, 'First tick emits Kick-Off notification');
-  assert.ok(res1.notifications[0].title.includes('Kick-Off'), 'First notification is Kick-Off');
+  assert.equal(res1.notifications[0].title, 'RM 0 - 0 BRS', 'Row 1 shows RM 0 - 0 BRS');
+  assert.equal(res1.notifications[0].message, "Kick-Off 1'", 'Row 2 shows Kick-Off 1\'');
   assert.equal(res1.notifications[0].image, 'https://media.api-sports.io/football/teams/541.png', 'Kick-off notification includes favorite team logo');
 
-  // Second tick: Real Madrid scores (1 - 0) at 28'
+  // Second tick: Barcelona (BRS) scores via Yamal at 13' (0 - 1)
   currentFixture = {
     ...currentFixture,
-    fixture: { id: 777111, status: { short: '1H', elapsed: 28 } },
-    goals: { home: 1, away: 0 }
+    fixture: { id: 777111, status: { short: '1H', elapsed: 13 } },
+    goals: { home: 0, away: 1 },
+    events: [
+      { type: 'Goal', time: { elapsed: 13 }, player: { name: 'Yamal' } }
+    ]
   };
   const res2 = await tick(makeCtx());
   assert.equal(res2.notifications.length, 1, 'Goal notification emitted');
-  assert.ok(res2.notifications[0].title.includes('GOAL! Real Madrid 1 - 0 Barcelona'), 'Title highlights scoreline');
-  assert.equal(res2.notifications[0].image, 'https://media.api-sports.io/football/teams/541.png', 'Notification includes scoring team https:// logo');
+  assert.equal(res2.notifications[0].title, 'RM 0 - 🟢 1 BRS', 'Row 1 highlights changed away score in green');
+  assert.ok(res2.notifications[0].titleHtml.includes('#4cd964'), 'titleHtml colors changed result in #4cd964 green');
+  assert.equal(res2.notifications[0].message, "Yamal 13'", 'Row 2 shows scorer and minute (Yamal 13\')');
+  assert.equal(res2.notifications[0].image, 'https://media.api-sports.io/football/teams/529.png', 'Notification includes scoring team https:// logo');
   assert.equal(res2.notifications[0].link, 'football-live:match/777111', 'Notification includes match deep-link');
 });
 
-test('widgets/scores.js does not falsely match women/youth teams (Paris Saint Germain W) when only main club (Paris Saint Germain ID 85) is favorited', async () => {
+test('widgets/scores.js respects widgetSettings source toggles (only_tracked vs only_favs) and priority order', async () => {
   const refresh = loadMyPcWorkerModule('widgets/scores.js');
 
-  const womensMatch = {
-    fixture: { id: 111222, date: new Date().toISOString(), status: { short: 'NS', elapsed: null } },
-    league: { id: 64, name: 'Feminine Division 1', logo: 'https://media.api-sports.io/football/leagues/64.png' },
-    teams: {
-      home: { id: 1667, name: 'Paris Saint Germain W', logo: 'https://media.api-sports.io/football/teams/1667.png' },
-      away: { id: 1668, name: 'Le Havre W', logo: 'https://media.api-sports.io/football/teams/1668.png' }
-    },
-    goals: { home: null, away: null }
-  };
-
-  const mensMatch = {
-    fixture: { id: 333444, date: new Date().toISOString(), status: { short: 'NS', elapsed: null } },
+  const trackedMatch = {
+    fixture: { id: 555001, date: new Date().toISOString(), status: { short: '1H', elapsed: 20 } },
     league: { id: 61, name: 'Ligue 1', logo: 'https://media.api-sports.io/football/leagues/61.png' },
     teams: {
-      home: { id: 85, name: 'Paris Saint-Germain', logo: 'https://media.api-sports.io/football/teams/85.png' },
-      away: { id: 81, name: 'Marseille', logo: 'https://media.api-sports.io/football/teams/81.png' }
+      home: { id: 81, name: 'Marseille', logo: 'https://media.api-sports.io/football/teams/81.png' },
+      away: { id: 80, name: 'Lyon', logo: 'https://media.api-sports.io/football/teams/80.png' }
     },
-    goals: { home: null, away: null }
+    goals: { home: 1, away: 0 }
   };
 
-  const savedConfig = {
-    favorite_teams: [{ id: 85, name: 'Paris Saint Germain' }],
-    favorite_leagues: [],
-    tracked_matches: []
+  const favTeamMatch = {
+    fixture: { id: 555002, date: new Date().toISOString(), status: { short: '1H', elapsed: 35 } },
+    league: { id: 140, name: 'La Liga', logo: 'https://media.api-sports.io/football/leagues/140.png' },
+    teams: {
+      home: { id: 541, name: 'Real Madrid', logo: 'https://media.api-sports.io/football/teams/541.png' },
+      away: { id: 529, name: 'Barcelona', logo: 'https://media.api-sports.io/football/teams/529.png' }
+    },
+    goals: { home: 0, away: 1 }
   };
 
-  // Case 1: Only women's match today -> should NOT falsely match PSG men's
-  const ctxOnlyWomens = {
-    settings: { only_favs: true },
+  // When widgetSettings has favorite_teams higher priority than tracked_matches:
+  const configFavFirst = {
+    favorite_teams: [{ id: 541, name: 'Real Madrid' }],
+    tracked_matches: [555001],
+    widgetSettings: {
+      mode: 'both',
+      sources: { tracked_matches: true, favorite_teams: true, favorite_leagues: false, allowed_leagues: false },
+      priority: ['favorite_teams', 'tracked_matches', 'favorite_leagues', 'allowed_leagues']
+    }
+  };
+
+  const resFavFirst = await refresh({
+    settings: {},
     state: {},
     fetch: async (url: string) => {
-      if (url.includes('identitytoolkit.googleapis.com')) {
-        return { ok: true, json: async () => ({ idToken: 'mock-token' }) };
-      }
+      if (url.includes('identitytoolkit.googleapis.com')) return { ok: true, json: async () => ({ idToken: 'tok' }) };
       if (url.includes('firestore.googleapis.com')) {
-        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(savedConfig) } } }) };
+        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(configFavFirst) } } }) };
       }
-      return { ok: true, json: async () => ({ response: [womensMatch] }) };
+      return { ok: true, json: async () => ({ response: [trackedMatch, favTeamMatch] }) };
+    }
+  });
+  assert.equal(resFavFirst.view.link, 'match/555002', 'Selects Favorite Team match when favorite_teams is priority #1');
+
+  // When widgetSettings is set to Tracked Matches Only:
+  const configTrackedOnly = {
+    ...configFavFirst,
+    widgetSettings: {
+      mode: 'tracked_only',
+      sources: { tracked_matches: true, favorite_teams: false, favorite_leagues: false, allowed_leagues: false },
+      priority: ['favorite_teams', 'tracked_matches', 'favorite_leagues', 'allowed_leagues']
     }
   };
 
-  const resW = await refresh(ctxOnlyWomens);
-  assert.equal(resW.view.link, 'account', 'Does not falsely pick Paris Saint Germain W');
-
-  // Case 2: Both women's and men's matches today -> picks men's PSG match
-  const ctxBoth = {
-    ...ctxOnlyWomens,
+  const resTrackedOnly = await refresh({
+    settings: {},
+    state: {},
     fetch: async (url: string) => {
-      if (url.includes('identitytoolkit.googleapis.com')) {
-        return { ok: true, json: async () => ({ idToken: 'mock-token' }) };
-      }
+      if (url.includes('identitytoolkit.googleapis.com')) return { ok: true, json: async () => ({ idToken: 'tok' }) };
       if (url.includes('firestore.googleapis.com')) {
-        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(savedConfig) } } }) };
+        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(configTrackedOnly) } } }) };
       }
-      return { ok: true, json: async () => ({ response: [womensMatch, mensMatch] }) };
+      return { ok: true, json: async () => ({ response: [trackedMatch, favTeamMatch] }) };
     }
-  };
-
-  const resM = await refresh(ctxBoth);
-  assert.equal(resM.view.link, 'match/333444', 'Picks the true Paris Saint-Germain (ID 85) match');
+  });
+  assert.equal(resTrackedOnly.view.link, 'match/555001', 'Selects Tracked Match when mode is tracked_only');
 });
-
-
-

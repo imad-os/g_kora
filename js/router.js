@@ -188,6 +188,10 @@
                     else leagueMatches.push(m);
                 });
 
+                if (leagueMatches.length === 0 && matches.length > 0) {
+                    leagueMatches.push(...matches);
+                }
+
                 const rows = [];
                 // Favorites rail: show only when there are favorite matches to display.
                 if (teamFavorites.length > 0) {
@@ -696,7 +700,7 @@
             const dateHeader = document.getElementById('date-header-wrapper');
             if (dateHeader) dateHeader.style.display = 'none';
 
-            const cfg = window.AppServices.State.appConfig || {};
+            const cfg = window.AppServices.FavoritesService.ensure();
             const mappings = cfg.buttonMappings || {
                 dateNext: 'pageUp',
                 datePrev: 'pageDown',
@@ -704,7 +708,110 @@
                 trackToggle: 'run'
             };
 
-            const user = window.AppServices.State.currentUser || { name: 'Player', email: 'player@mypc.football' };
+            const user = window.AppServices.State.currentUser || { name: 'Player', email: 'player@mypc.football', uid: 'player' };
+
+            const SOURCE_META = {
+                tracked_matches: {
+                    title: 'Tracked Matches',
+                    desc: 'Matches you marked with the red Track dot (🔴)',
+                    icon: 'ph-Crosshair'
+                },
+                favorite_teams: {
+                    title: 'Favorite Teams',
+                    desc: 'Matches featuring your starred Favorite Teams (⭐)',
+                    icon: 'ph-star'
+                },
+                favorite_leagues: {
+                    title: 'Favorite Leagues',
+                    desc: 'Matches from your hearted Favorite Leagues (❤️)',
+                    icon: 'ph-trophy'
+                },
+                allowed_leagues: {
+                    title: 'Allowed Leagues',
+                    desc: 'Matches from global allowed competitions (Premier League, La Liga, UCL...)',
+                    icon: 'ph-globe-hemisphere-west'
+                }
+            };
+
+            const MODE_PRESETS = [
+                { id: 'fav_teams_only', label: 'Only Favorite Teams' },
+                { id: 'tracked_only', label: 'Only Tracked Matches' },
+                { id: 'both', label: 'Both (Tracked + Fav Teams)' },
+                { id: 'all', label: 'All Sources (By Priority)' }
+            ];
+
+            const renderPrioritySection = (targetKey, sectionTitle, sectionIcon, sectionSubtitle) => {
+                const block = cfg[targetKey] || {
+                    mode: 'both',
+                    sources: { tracked_matches: true, favorite_teams: true, favorite_leagues: false, allowed_leagues: false },
+                    priority: ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues']
+                };
+                const priorityList = Array.isArray(block.priority)
+                    ? block.priority
+                    : ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
+
+                const modeBtnsHtml = MODE_PRESETS.map(p => {
+                    const isActive = block.mode === p.id;
+                    return `<button type="button" class="settings-mode-pill focusable ${isActive ? 'active' : ''}" tabindex="0" data-settings-target="${targetKey}" data-mode="${p.id}">
+                        ${isActive ? '● ' : ''}${p.label}
+                    </button>`;
+                }).join('');
+
+                const priorityRowsHtml = priorityList.map((srcKey, idx) => {
+                    const meta = SOURCE_META[srcKey] || { title: srcKey, desc: '' };
+                    const isOn = Boolean(block.sources && block.sources[srcKey]);
+                    return `
+                        <div class="priority-row ${isOn ? 'is-enabled' : 'is-disabled'}" data-source="${srcKey}">
+                            <div class="priority-rank">#${idx + 1}</div>
+                            <div class="priority-info">
+                                <div class="priority-title">${meta.title}</div>
+                                <div class="priority-desc">${meta.desc}</div>
+                            </div>
+                            <div class="priority-actions">
+                                <button type="button" class="priority-toggle-btn focusable ${isOn ? 'on' : 'off'}" tabindex="0"
+                                        data-settings-target="${targetKey}" data-source-toggle="${srcKey}"
+                                        aria-label="Toggle ${meta.title} for ${sectionTitle}">
+                                    ${isOn ? 'ON' : 'OFF'}
+                                </button>
+                                <button type="button" class="priority-move-btn focusable" tabindex="0"
+                                        data-settings-target="${targetKey}" data-source-move="${srcKey}" data-dir="-1"
+                                        ${idx === 0 ? 'disabled' : ''} title="Move Priority Up" aria-label="Move ${meta.title} priority up">
+                                    ▲
+                                </button>
+                                <button type="button" class="priority-move-btn focusable" tabindex="0"
+                                        data-settings-target="${targetKey}" data-source-move="${srcKey}" data-dir="1"
+                                        ${idx === priorityList.length - 1 ? 'disabled' : ''} title="Move Priority Down" aria-label="Move ${meta.title} priority down">
+                                    ▼
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <section class="settings-section" id="section-${targetKey}">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.9rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--bg-focus); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="ph ${sectionIcon}"></i> ${sectionTitle}
+                            </h2>
+                            <div style="color: var(--text-muted); font-size: 0.9rem;">${sectionSubtitle}</div>
+                        </div>
+
+                        <div class="settings-mode-bar">
+                            <span class="settings-mode-label">Quick Filter:</span>
+                            <div class="settings-mode-pills">${modeBtnsHtml}</div>
+                        </div>
+
+                        <div class="priority-list-header">
+                            <span>Selection & Priority Order (1st = Highest Priority)</span>
+                            <span>Include / Reorder</span>
+                        </div>
+                        <div class="priority-list">
+                            ${priorityRowsHtml}
+                        </div>
+                    </section>
+                `;
+            };
 
             const renderSlot = (slotKey, title, desc) => {
                 const action = mappings[slotKey];
@@ -724,15 +831,29 @@
 
             container.innerHTML = `
                 <div class="settings-page">
-                    <div class="settings-hero" style="margin-bottom: 2rem;">
-                        <h1 style="font-size: 2.2rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">Settings</h1>
-                        <div style="color: var(--text-muted); font-size: 1.1rem;">Controller button mappings, TV user profile & automatic cloud sync</div>
+                    <div class="settings-hero" style="margin-bottom: 1.8rem;">
+                        <h1 style="font-size: 2.2rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.4rem;">Settings</h1>
+                        <div style="color: var(--text-muted); font-size: 1.05rem;">Configure Desktop Widget, Background Notification Service priorities & TV Remote / Controller shortcuts</div>
                     </div>
+
+                    ${renderPrioritySection(
+                        'widgetSettings',
+                        'Desktop Widget Selection & Priority',
+                        'ph-squares-four',
+                        'Choose which match appears in the My PC Desktop Widget & in what priority order'
+                    )}
+
+                    ${renderPrioritySection(
+                        'serviceSettings',
+                        'Notification Service & Live Alerts Selection',
+                        'ph-bell-ringing',
+                        'Choose which matches trigger 2-row Goal & Match Result notifications'
+                    )}
 
                     <section class="settings-section">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
                             <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--bg-focus); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
-                                <i class="ph ph-game-controller"></i> Controller Button Mappings
+                                <i class="ph ph-game-controller"></i> Controller & TV Remote Shortcuts
                             </h2>
                             <div style="color: var(--text-muted); font-size: 0.9rem;">Click or press OK on any action to remap (5s listener)</div>
                         </div>
@@ -740,8 +861,8 @@
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;">
                             ${renderSlot('dateNext', 'Next Day (+)', 'Advance match date by 1 day')}
                             ${renderSlot('datePrev', 'Previous Day (-)', 'Rewind match date by 1 day')}
-                            ${renderSlot('favToggle', 'Toggle Favorite (⭐)', 'Star or unstar team/league in view')}
-                            ${renderSlot('trackToggle', 'Track Match (🔴 Live Alert)', 'Track match for goal & FT notifications')}
+                            ${renderSlot('favToggle', 'Toggle Favorite (⭐)', 'Star or unstar team/league on focused card')}
+                            ${renderSlot('trackToggle', 'Track Match (🔴 Live Alert)', 'Mark focused match card as tracked with sound & red dot')}
                         </div>
 
                         <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
@@ -760,13 +881,94 @@
                             <div>
                                 <div style="font-weight: 600; font-size: 1.1rem; color: var(--text-main);">${user.name}</div>
                                 <div style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.2rem;">Profile: ${user.email}</div>
-                                <div style="color: var(--live-color); font-size: 0.85rem; margin-top: 0.3rem;">● Favorites & Tracked Matches Auto-Synced to My PC, Desktop Widget & Background Service</div>
+                                <div style="color: var(--live-color); font-size: 0.85rem; margin-top: 0.3rem;">● Favorites, Tracked Matches & Widget/Service Priorities Auto-Synced to My PC</div>
                             </div>
                             <div style="font-size: 2rem; color: var(--bg-focus);"><i class="ph ph-cloud-check"></i></div>
                         </div>
                     </section>
                 </div>
             `;
+
+            const persistAndRefreshSettings = async (toastMsg, focusSelector) => {
+                await window.AppServices.Storage.saveUserConfig(user.uid || 'player', window.AppServices.State.appConfig);
+                if (toastMsg) window.AppServices.Helpers.showToast(toastMsg, 'success');
+                await window.AppViews.renderSettingsPage(container);
+                if (focusSelector) {
+                    const targetEl = container.querySelector(focusSelector);
+                    if (targetEl && window.Navigation) window.Navigation.focus(targetEl, false);
+                }
+            };
+
+            // Quick Mode Preset buttons
+            container.querySelectorAll('.settings-mode-pill').forEach(btn => {
+                btn.onclick = async () => {
+                    const targetKey = btn.dataset.settingsTarget;
+                    const mode = btn.dataset.mode;
+                    if (!targetKey || !mode) return;
+                    const block = window.AppServices.State.appConfig[targetKey] || {};
+                    block.mode = mode;
+                    if (mode === 'fav_teams_only') {
+                        block.sources = { tracked_matches: false, favorite_teams: true, favorite_leagues: false, allowed_leagues: false };
+                    } else if (mode === 'tracked_only') {
+                        block.sources = { tracked_matches: true, favorite_teams: false, favorite_leagues: false, allowed_leagues: false };
+                    } else if (mode === 'both') {
+                        block.sources = { tracked_matches: true, favorite_teams: true, favorite_leagues: false, allowed_leagues: false };
+                    } else if (mode === 'all') {
+                        block.sources = { tracked_matches: true, favorite_teams: true, favorite_leagues: true, allowed_leagues: true };
+                    }
+                    window.AppServices.State.appConfig[targetKey] = block;
+                    const sel = `.settings-mode-pill[data-settings-target="${targetKey}"][data-mode="${mode}"]`;
+                    await persistAndRefreshSettings(`Updated ${targetKey === 'widgetSettings' ? 'Widget' : 'Notification'} filter mode`, sel);
+                };
+            });
+
+            // Per-source ON/OFF toggles
+            container.querySelectorAll('.priority-toggle-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    const targetKey = btn.dataset.settingsTarget;
+                    const srcKey = btn.dataset.sourceToggle;
+                    if (!targetKey || !srcKey) return;
+                    const block = window.AppServices.State.appConfig[targetKey] || {};
+                    if (!block.sources) block.sources = {};
+                    block.sources[srcKey] = !block.sources[srcKey];
+
+                    // Detect if sources match a preset or custom
+                    const s = block.sources;
+                    if (!s.tracked_matches && s.favorite_teams && !s.favorite_leagues && !s.allowed_leagues) block.mode = 'fav_teams_only';
+                    else if (s.tracked_matches && !s.favorite_teams && !s.favorite_leagues && !s.allowed_leagues) block.mode = 'tracked_only';
+                    else if (s.tracked_matches && s.favorite_teams && !s.favorite_leagues && !s.allowed_leagues) block.mode = 'both';
+                    else if (s.tracked_matches && s.favorite_teams && s.favorite_leagues && s.allowed_leagues) block.mode = 'all';
+                    else block.mode = 'custom';
+
+                    window.AppServices.State.appConfig[targetKey] = block;
+                    const sel = `.priority-toggle-btn[data-settings-target="${targetKey}"][data-source-toggle="${srcKey}"]`;
+                    await persistAndRefreshSettings(`${SOURCE_META[srcKey]?.title || srcKey}: ${block.sources[srcKey] ? 'Enabled' : 'Disabled'}`, sel);
+                };
+            });
+
+            // Priority Up / Down buttons
+            container.querySelectorAll('.priority-move-btn').forEach(btn => {
+                btn.onclick = async () => {
+                    const targetKey = btn.dataset.settingsTarget;
+                    const srcKey = btn.dataset.sourceMove;
+                    const dir = Number(btn.dataset.dir || 0);
+                    if (!targetKey || !srcKey || !dir) return;
+                    const block = window.AppServices.State.appConfig[targetKey] || {};
+                    const arr = Array.isArray(block.priority)
+                        ? [...block.priority]
+                        : ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
+                    const idx = arr.indexOf(srcKey);
+                    const swapIdx = idx + dir;
+                    if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) return;
+                    const tmp = arr[idx];
+                    arr[idx] = arr[swapIdx];
+                    arr[swapIdx] = tmp;
+                    block.priority = arr;
+                    window.AppServices.State.appConfig[targetKey] = block;
+                    const sel = `.priority-move-btn[data-settings-target="${targetKey}"][data-source-move="${srcKey}"][data-dir="${dir}"]`;
+                    await persistAndRefreshSettings(`Moved ${SOURCE_META[srcKey]?.title || srcKey} to Priority #${swapIdx + 1}`, sel);
+                };
+            });
 
             // Attach click listeners to mapping cards
             ['dateNext', 'datePrev', 'favToggle', 'trackToggle'].forEach(slotKey => {

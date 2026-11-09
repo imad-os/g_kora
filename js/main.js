@@ -372,17 +372,9 @@
             const tabBtn = target.closest('.tab-button');
             if (tabBtn) {
                 if (tabBtn.id === 'btn-track-toggle') {
-                    const mid = Number(tabBtn.dataset.mid);
-                    if (Utils.isTracked(mid)) {
-                        Utils.removeTracked(mid);
-                        tabBtn.classList.remove('track-active');
-                        tabBtn.textContent = 'Track';
-                        Helpers.showToast('Stopped tracking match alerts', 'info');
-                    } else {
-                        Utils.addTracked(mid);
-                        tabBtn.classList.add('track-active');
-                        tabBtn.textContent = 'Track';
-                        Helpers.showToast('Tracking match for live goal & FT alerts!', 'success');
+                    const mid = Number(tabBtn.dataset.id || tabBtn.dataset.mid || window.AppState.currentMatchId);
+                    if (mid && Utils && typeof Utils.toggleTrackVisual === 'function') {
+                        Utils.toggleTrackVisual(mid, tabBtn);
                     }
                 } else {
                     const parent = tabBtn.closest('.page-container');

@@ -258,6 +258,69 @@ const FavoritesService = {
             trackToggle: 'run'
         }, c.buttonMappings || {});
 
+        const DEFAULT_PRIORITY = ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
+        const normalizePriority = (arr) => {
+            const valid = Array.isArray(arr) ? arr.filter(k => DEFAULT_PRIORITY.includes(k)) : [];
+            DEFAULT_PRIORITY.forEach(k => {
+                if (!valid.includes(k)) valid.push(k);
+            });
+            return valid;
+        };
+
+        const normalizeSourceBlock = (raw) => {
+            const block = raw && typeof raw === 'object' ? { ...raw } : {};
+            const mode = ['fav_teams_only', 'tracked_only', 'both', 'all', 'custom'].includes(block.mode)
+                ? block.mode
+                : 'both';
+            const defaultSources = {
+                tracked_matches: mode !== 'fav_teams_only',
+                favorite_teams: mode !== 'tracked_only',
+                favorite_leagues: mode === 'all',
+                allowed_leagues: mode === 'all'
+            };
+            const sources = Object.assign({}, defaultSources, block.sources || {});
+            if (mode === 'fav_teams_only') {
+                sources.tracked_matches = false;
+                sources.favorite_teams = true;
+                sources.favorite_leagues = false;
+                sources.allowed_leagues = false;
+            } else if (mode === 'tracked_only') {
+                sources.tracked_matches = true;
+                sources.favorite_teams = false;
+                sources.favorite_leagues = false;
+                sources.allowed_leagues = false;
+            } else if (mode === 'both') {
+                sources.tracked_matches = true;
+                sources.favorite_teams = true;
+                sources.favorite_leagues = false;
+                sources.allowed_leagues = false;
+            } else if (mode === 'all') {
+                sources.tracked_matches = true;
+                sources.favorite_teams = true;
+                sources.favorite_leagues = true;
+                sources.allowed_leagues = true;
+            }
+            return {
+                mode,
+                sources: {
+                    tracked_matches: Boolean(sources.tracked_matches),
+                    favorite_teams: Boolean(sources.favorite_teams),
+                    favorite_leagues: Boolean(sources.favorite_leagues),
+                    allowed_leagues: Boolean(sources.allowed_leagues)
+                },
+                priority: normalizePriority(block.priority)
+            };
+        };
+
+        c.widgetSettings = normalizeSourceBlock(c.widgetSettings);
+        c.serviceSettings = normalizeSourceBlock(c.serviceSettings);
+
+        if (!Array.isArray(c.allowed_leagues) || c.allowed_leagues.length === 0) {
+            c.allowed_leagues = (State.globalSettings && Array.isArray(State.globalSettings.allowed_leagues))
+                ? State.globalSettings.allowed_leagues
+                : [];
+        }
+
         return c;
     },
 
