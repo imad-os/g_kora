@@ -81,6 +81,26 @@ const State = {
             datePrev: 'pageDown',
             favToggle: 'y',
             trackToggle: 'run'
+        },
+        widgetSettings: {
+            mode: 'both',
+            sources: {
+                tracked_matches: true,
+                favorite_teams: true,
+                favorite_leagues: false,
+                allowed_leagues: false
+            },
+            priority: ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues']
+        },
+        serviceSettings: {
+            mode: 'both',
+            sources: {
+                tracked_matches: true,
+                favorite_teams: true,
+                favorite_leagues: false,
+                allowed_leagues: false
+            },
+            priority: ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues']
         }
     },
     globalSettings: {
@@ -475,7 +495,10 @@ const Storage = {
             favorite_teams: cfg.favorite_teams || [],
             favorite_leagues: cfg.favorite_leagues || [],
             favorite_players: cfg.favorite_players || [],
-            tracked_matches: cfg.tracked_matches || []
+            tracked_matches: cfg.tracked_matches || [],
+            allowed_leagues: cfg.allowed_leagues || State.globalSettings?.allowed_leagues || [],
+            widgetSettings: cfg.widgetSettings,
+            serviceSettings: cfg.serviceSettings
         };
         const payloadJson = JSON.stringify(payloadObj);
 
@@ -502,6 +525,8 @@ const Storage = {
             const patchBody = {
                 fields: {
                     latestConfigJson: { stringValue: payloadJson },
+                    widgetSettingsJson: { stringValue: JSON.stringify(cfg.widgetSettings || {}) },
+                    serviceSettingsJson: { stringValue: JSON.stringify(cfg.serviceSettings || {}) },
                     lastUsername: { stringValue: cleanUser },
                     updatedAt: { integerValue: String(Date.now()) },
                     profiles: {
@@ -596,7 +621,10 @@ const Storage = {
                                 ...local,
                                 favorite_teams: local.favorite_teams || remoteConfig.favorite_teams,
                                 favorite_leagues: local.favorite_leagues || remoteConfig.favorite_leagues,
-                                tracked_matches: local.tracked_matches || remoteConfig.tracked_matches
+                                tracked_matches: local.tracked_matches || remoteConfig.tracked_matches,
+                                allowed_leagues: local.allowed_leagues || remoteConfig.allowed_leagues,
+                                widgetSettings: local.widgetSettings || remoteConfig.widgetSettings,
+                                serviceSettings: local.serviceSettings || remoteConfig.serviceSettings
                             }) : FavoritesService.normalizeConfig(remoteConfig);
                             State.appConfig = merged;
                             Storage.saveUserConfigLocally(State.appConfig);

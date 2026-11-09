@@ -41,7 +41,7 @@ const API_KEYS = [
   'cca156198fmshf3d7f508bb67393p1dcd50jsne575eb3e7518'
 ];
 
-async function fetchSavedUserConfig(ctxFetch, preferredProfile) {
+async function fetchSavedUserConfig(ctxFetch) {
   try {
     const authRes = await ctxFetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FB_API_KEY}`,
@@ -65,17 +65,36 @@ async function fetchSavedUserConfig(ctxFetch, preferredProfile) {
     const doc = await docRes.json();
     const fields = doc.fields || {};
 
-    if (preferredProfile && fields.profiles && fields.profiles.mapValue && fields.profiles.mapValue.fields) {
-      const clean = String(preferredProfile).toLowerCase().replace(/[^a-z0-9_]/g, '');
-      const pEntry = fields.profiles.mapValue.fields[clean];
-      if (pEntry && pEntry.stringValue) {
-        try { return JSON.parse(pEntry.stringValue); } catch (e) {}
+    let bestConfig = null;
+    if (fields.latestConfigJson && fields.latestConfigJson.stringValue) {
+      try { bestConfig = JSON.parse(fields.latestConfigJson.stringValue); } catch (e) {}
+    }
+
+    if (fields.profiles && fields.profiles.mapValue && fields.profiles.mapValue.fields) {
+      const pFields = fields.profiles.mapValue.fields;
+      for (const key of Object.keys(pFields)) {
+        const entry = pFields[key];
+        if (entry && entry.stringValue) {
+          try {
+            const parsed = JSON.parse(entry.stringValue);
+            if (!bestConfig || ((parsed.updatedAt || 0) > (bestConfig.updatedAt || 0))) {
+              bestConfig = parsed;
+            }
+          } catch (e) {}
+        }
       }
     }
 
-    if (fields.latestConfigJson && fields.latestConfigJson.stringValue) {
-      return JSON.parse(fields.latestConfigJson.stringValue);
+    if (bestConfig && fields.widgetSettingsJson && fields.widgetSettingsJson.stringValue) {
+      try {
+        const ws = JSON.parse(fields.widgetSettingsJson.stringValue);
+        if (ws && typeof ws === 'object' && Object.keys(ws).length > 0) {
+          bestConfig.widgetSettings = ws;
+        }
+      } catch (e) {}
     }
+
+    return bestConfig;
   } catch (e) {
     // Graceful network/auth fallback
   }
@@ -100,38 +119,35 @@ export default async function (ctx) {
   const today = `${year}-${month}-${day}`;
 
   const appConfig = ctx.config || {};
-  const settings = ctx.settings || {};
   const prevState = ctx.state || {};
 
-  // 1. Load live saved user config from the My PC Football cloud bridge
-  const cloudConfig = await fetchSavedUserConfig(ctx.fetch, settings.profile || '');
+  // 1. Load live saved user config from the Football Live app cloud bridge
+  const cloudConfig = await fetchSavedUserConfig(ctx.fetch);
   const savedConfig = cloudConfig || prevState.cachedConfig || {};
 
-  const favTeamsList =
-    (Array.isArray(savedConfig.favorite_teams) && savedConfig.favorite_teams.length > 0)
-      ? savedConfig.favorite_teams
-      : (Array.isArray(appConfig.favorite_teams) && appConfig.favorite_teams.length > 0)
-        ? appConfig.favorite_teams
-        : [
-            { id: 85, name: 'Paris Saint Germain' },
-            { id: 50, name: 'Manchester City' },
-            { id: 541, name: 'Real Madrid' },
-            { id: 529, name: 'Barcelona' },
-            { id: 489, name: 'AC Milan' },
-            { id: 31, name: 'Morocco' }
-          ];
+  const favTeamsList = Array.isArray(savedConfig.favorite_teams)
+    ? savedConfig.favorite_teams
+    : (Array.isArray(appConfig.favorite_teams) && appConfig.favorite_teams.length > 0)
+      ? appConfig.favorite_teams
+      : [
+          { id: 85, name: 'Paris Saint Germain' },
+          { id: 50, name: 'Manchester City' },
+          { id: 541, name: 'Real Madrid' },
+          { id: 529, name: 'Barcelona' },
+          { id: 489, name: 'AC Milan' },
+          { id: 31, name: 'Morocco' }
+        ];
 
-  const favLeaguesList =
-    (Array.isArray(savedConfig.favorite_leagues) && savedConfig.favorite_leagues.length > 0)
-      ? savedConfig.favorite_leagues
-      : (Array.isArray(appConfig.favorite_leagues) && appConfig.favorite_leagues.length > 0)
-        ? appConfig.favorite_leagues
-        : [
-            { id: 2, name: 'UEFA Champions League' },
-            { id: 39, name: 'Premier League' },
-            { id: 140, name: 'La Liga' },
-            { id: 135, name: 'Serie A' }
-          ];
+  const favLeaguesList = Array.isArray(savedConfig.favorite_leagues)
+    ? savedConfig.favorite_leagues
+    : (Array.isArray(appConfig.favorite_leagues) && appConfig.favorite_leagues.length > 0)
+      ? appConfig.favorite_leagues
+      : [
+          { id: 2, name: 'UEFA Champions League' },
+          { id: 39, name: 'Premier League' },
+          { id: 140, name: 'La Liga' },
+          { id: 135, name: 'Serie A' }
+        ];
 
   const allowedLeaguesList =
     (Array.isArray(savedConfig.allowed_leagues) && savedConfig.allowed_leagues.length > 0)
@@ -152,7 +168,7 @@ export default async function (ctx) {
     (Array.isArray(savedConfig.tracked_matches) ? savedConfig.tracked_matches : []).map(Number).filter(Boolean)
   );
 
-  // 2. Resolve Widget Selection & Priority configuration
+  // 2. Resolve Widget Selection & Priority configuration exclusively from Football Live app settings
   const rawWidgetSettings = savedConfig.widgetSettings || {};
   const defaultPriority = ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
   const priorityOrder = Array.isArray(rawWidgetSettings.priority) && rawWidgetSettings.priority.length > 0
@@ -162,6 +178,7 @@ export default async function (ctx) {
     if (!priorityOrder.includes(k)) priorityOrder.push(k);
   });
 
+  const mode = rawWidgetSettings.mode || 'both';
   const sources = Object.assign(
     {
       tracked_matches: true,
@@ -171,29 +188,30 @@ export default async function (ctx) {
     },
     rawWidgetSettings.sources || {}
   );
-
-  // Support optional host widget settings overrides
-  if (settings.only_tracked === true) {
+  if (mode === 'fav_teams_only') {
+    sources.tracked_matches = false;
+    sources.favorite_teams = true;
+    sources.favorite_leagues = false;
+    sources.allowed_leagues = false;
+  } else if (mode === 'tracked_only') {
     sources.tracked_matches = true;
     sources.favorite_teams = false;
     sources.favorite_leagues = false;
     sources.allowed_leagues = false;
-  } else if (settings.only_favs === true && !rawWidgetSettings.sources) {
+  } else if (mode === 'both') {
+    sources.tracked_matches = true;
     sources.favorite_teams = true;
     sources.favorite_leagues = false;
     sources.allowed_leagues = false;
-  } else if (settings.only_favs === false && !rawWidgetSettings.sources) {
+  } else if (mode === 'all') {
+    sources.tracked_matches = true;
+    sources.favorite_teams = true;
     sources.favorite_leagues = true;
+    sources.allowed_leagues = true;
   }
 
   const favTeamIds = new Set(favTeamsList.map(x => Number(x && x.id)).filter(Boolean));
   const favTeamNames = favTeamsList.map(x => String((x && x.name) || '').toLowerCase().trim()).filter(Boolean);
-
-  const customTeam = String(settings.team || '').toLowerCase().trim();
-  if (customTeam) {
-    if (/^\d+$/.test(customTeam)) favTeamIds.add(Number(customTeam));
-    else favTeamNames.unshift(customTeam);
-  }
 
   const favLeagueIds = new Set(favLeaguesList.map(l => Number(l && l.id)).filter(Boolean));
   const favLeagueNames = favLeaguesList.map(l => String((l && l.name) || '').toLowerCase().trim()).filter(Boolean);
@@ -209,7 +227,6 @@ export default async function (ctx) {
   }
 
   const favTeamNorms = new Set(favTeamNames.map(normClub).filter(Boolean));
-  const customTeamNorm = customTeam && !/^\d+$/.test(customTeam) ? normClub(customTeam) : '';
 
   function isTeamFavorite(team) {
     if (!team) return false;
@@ -217,9 +234,7 @@ export default async function (ctx) {
     if (tid && favTeamIds.has(tid)) return true;
     const tnorm = normClub(team.name);
     if (!tnorm) return false;
-    if (favTeamNorms.has(tnorm)) return true;
-    if (customTeamNorm && tnorm.includes(customTeamNorm)) return true;
-    return false;
+    return favTeamNorms.has(tnorm);
   }
 
   function isLeagueFavorite(league) {

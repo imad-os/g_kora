@@ -6,7 +6,7 @@
   "type": "app",
   "entry": "index.html",
   "icon": "assets/icon.png",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "config": {
     "refreshSec": 30,
     "allowed_leagues": [
@@ -35,12 +35,7 @@
       "size": "medium",
       "every": 5,
       "background": false,
-      "description": "Today's favorite or tracked match with team logos, score, and live timing bar",
-      "settings": [
-        { "id": "team", "label": "Override favorite team (optional)", "type": "text", "default": "" },
-        { "id": "only_favs", "label": "Only show favorite teams", "type": "toggle", "default": true },
-        { "id": "only_tracked", "label": "Only show tracked matches", "type": "toggle", "default": false }
-      ]
+      "description": "Today's match based on your Football Live app priority settings"
     }
   ],
   "services": [

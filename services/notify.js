@@ -68,10 +68,26 @@ async function fetchBridgeUserConfigs(ctxFetch) {
       const pMap = fields.profiles.mapValue.fields;
       for (const k of Object.keys(pMap)) {
         if (pMap[k] && pMap[k].stringValue) {
-          try { profiles[k] = JSON.parse(pMap[k].stringValue); } catch (e) {}
+          try {
+            const pObj = JSON.parse(pMap[k].stringValue);
+            profiles[k] = pObj;
+            if (!latest || ((pObj.updatedAt || 0) > (latest.updatedAt || 0))) {
+              latest = pObj;
+            }
+          } catch (e) {}
         }
       }
     }
+
+    if (latest && fields.serviceSettingsJson && fields.serviceSettingsJson.stringValue) {
+      try {
+        const ss = JSON.parse(fields.serviceSettingsJson.stringValue);
+        if (ss && typeof ss === 'object' && Object.keys(ss).length > 0) {
+          latest.serviceSettings = ss;
+        }
+      } catch (e) {}
+    }
+
     return { latest, profiles };
   } catch (e) {
     return null;
@@ -118,61 +134,44 @@ export default async function (ctx) {
 
   const appConfig = ctx.config || {};
   const bridgeData = await fetchBridgeUserConfigs(ctx.fetch);
-  const mergedFavTeams = [...(appConfig.favorite_teams || [])];
-  const mergedFavLeagues = [...(appConfig.favorite_leagues || [])];
-  const mergedAllowedLeagues = [...(appConfig.allowed_leagues || [])];
-  const trackedMatchIds = new Set();
+  const latestCfg = (bridgeData && bridgeData.latest) ? bridgeData.latest : {};
 
-  let activeServiceSettings = null;
+  const mergedFavTeams = Array.isArray(latestCfg.favorite_teams)
+    ? [...latestCfg.favorite_teams]
+    : [...(appConfig.favorite_teams || [
+        { id: 85, name: 'Paris Saint Germain' },
+        { id: 50, name: 'Manchester City' },
+        { id: 541, name: 'Real Madrid' },
+        { id: 529, name: 'Barcelona' },
+        { id: 489, name: 'AC Milan' },
+        { id: 31, name: 'Morocco' }
+      ])];
 
-  if (bridgeData) {
-    if (bridgeData.latest) {
-      if (Array.isArray(bridgeData.latest.favorite_teams)) mergedFavTeams.push(...bridgeData.latest.favorite_teams);
-      if (Array.isArray(bridgeData.latest.favorite_leagues)) mergedFavLeagues.push(...bridgeData.latest.favorite_leagues);
-      if (Array.isArray(bridgeData.latest.allowed_leagues)) mergedAllowedLeagues.push(...bridgeData.latest.allowed_leagues);
-      if (Array.isArray(bridgeData.latest.tracked_matches)) {
-        bridgeData.latest.tracked_matches.forEach(id => trackedMatchIds.add(Number(id)));
-      }
-      if (bridgeData.latest.serviceSettings) {
-        activeServiceSettings = bridgeData.latest.serviceSettings;
-      }
-    }
-    if (bridgeData.profiles) {
-      for (const pCfg of Object.values(bridgeData.profiles)) {
-        if (pCfg && Array.isArray(pCfg.favorite_teams)) mergedFavTeams.push(...pCfg.favorite_teams);
-        if (pCfg && Array.isArray(pCfg.favorite_leagues)) mergedFavLeagues.push(...pCfg.favorite_leagues);
-        if (pCfg && Array.isArray(pCfg.allowed_leagues)) mergedAllowedLeagues.push(...pCfg.allowed_leagues);
-        if (pCfg && Array.isArray(pCfg.tracked_matches)) {
-          pCfg.tracked_matches.forEach(id => trackedMatchIds.add(Number(id)));
-        }
-        if (!activeServiceSettings && pCfg && pCfg.serviceSettings) {
-          activeServiceSettings = pCfg.serviceSettings;
-        }
-      }
-    }
-  }
+  const mergedFavLeagues = Array.isArray(latestCfg.favorite_leagues)
+    ? [...latestCfg.favorite_leagues]
+    : [...(appConfig.favorite_leagues || [])];
 
-  // Fallback defaults if no favorites were configured yet
-  if (mergedFavTeams.length === 0) {
-    mergedFavTeams.push(
-      { id: 85, name: 'Paris Saint Germain' },
-      { id: 50, name: 'Manchester City' },
-      { id: 541, name: 'Real Madrid' },
-      { id: 529, name: 'Barcelona' },
-      { id: 489, name: 'AC Milan' },
-      { id: 31, name: 'Morocco' }
-    );
-  }
+  const mergedAllowedLeagues =
+    (Array.isArray(latestCfg.allowed_leagues) && latestCfg.allowed_leagues.length > 0)
+      ? [...latestCfg.allowed_leagues]
+      : [...(appConfig.allowed_leagues || [])];
 
-  // Resolve Service Selection & Priority configuration
+  const trackedMatchIds = new Set(
+    (Array.isArray(latestCfg.tracked_matches) ? latestCfg.tracked_matches : []).map(Number).filter(Boolean)
+  );
+
+  const activeServiceSettings = latestCfg.serviceSettings || {};
+
+  // Resolve Service Selection & Priority configuration from Football Live app settings
   const defaultPriority = ['tracked_matches', 'favorite_teams', 'favorite_leagues', 'allowed_leagues'];
-  const priorityOrder = Array.isArray(activeServiceSettings?.priority) && activeServiceSettings.priority.length > 0
+  const priorityOrder = Array.isArray(activeServiceSettings.priority) && activeServiceSettings.priority.length > 0
     ? activeServiceSettings.priority.filter(k => defaultPriority.includes(k))
     : defaultPriority;
   defaultPriority.forEach(k => {
     if (!priorityOrder.includes(k)) priorityOrder.push(k);
   });
 
+  const mode = activeServiceSettings.mode || 'both';
   const sources = Object.assign(
     {
       tracked_matches: true,
@@ -180,8 +179,29 @@ export default async function (ctx) {
       favorite_leagues: false,
       allowed_leagues: false
     },
-    activeServiceSettings?.sources || {}
+    activeServiceSettings.sources || {}
   );
+  if (mode === 'fav_teams_only') {
+    sources.tracked_matches = false;
+    sources.favorite_teams = true;
+    sources.favorite_leagues = false;
+    sources.allowed_leagues = false;
+  } else if (mode === 'tracked_only') {
+    sources.tracked_matches = true;
+    sources.favorite_teams = false;
+    sources.favorite_leagues = false;
+    sources.allowed_leagues = false;
+  } else if (mode === 'both') {
+    sources.tracked_matches = true;
+    sources.favorite_teams = true;
+    sources.favorite_leagues = false;
+    sources.allowed_leagues = false;
+  } else if (mode === 'all') {
+    sources.tracked_matches = true;
+    sources.favorite_teams = true;
+    sources.favorite_leagues = true;
+    sources.allowed_leagues = true;
+  }
 
   const favTeamIds = new Set(mergedFavTeams.map(t => Number(t && t.id)).filter(Boolean));
   const favTeamNames = mergedFavTeams.map(t => String((t && t.name) || '').toLowerCase().trim()).filter(Boolean);

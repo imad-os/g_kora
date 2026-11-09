@@ -16,6 +16,7 @@ test('mypc-app.json manifest conforms to My PC SDK specification', () => {
   assert.ok(Array.isArray(manifest.widgets), 'widgets array exists');
   assert.ok(Array.isArray(manifest.services), 'services array exists');
   assert.equal(manifest.widgets[0].id, 'scores', 'widget id is scores');
+  assert.equal(manifest.widgets[0].settings, undefined, 'MyPC widget settings removed so app settings are used exclusively');
   assert.equal(manifest.services[0].id, 'match-alerts', 'service id is match-alerts');
 });
 
@@ -445,7 +446,8 @@ test('widgets/scores.js respects widgetSettings source toggles (only_tracked vs 
   };
 
   const resFavFirst = await refresh({
-    settings: {},
+    // Even if MyPC host passes conflicting ctx.settings, the Football Live app settings must win
+    settings: { only_tracked: true, team: 'Marseille' },
     state: {},
     fetch: async (url: string) => {
       if (url.includes('identitytoolkit.googleapis.com')) return { ok: true, json: async () => ({ idToken: 'tok' }) };
@@ -455,7 +457,7 @@ test('widgets/scores.js respects widgetSettings source toggles (only_tracked vs 
       return { ok: true, json: async () => ({ response: [trackedMatch, favTeamMatch] }) };
     }
   });
-  assert.equal(resFavFirst.view.link, 'match/555002', 'Selects Favorite Team match when favorite_teams is priority #1');
+  assert.equal(resFavFirst.view.link, 'match/555002', 'Selects Favorite Team match from Football Live app settings when favorite_teams is priority #1');
 
   // When widgetSettings is set to Tracked Matches Only:
   const configTrackedOnly = {
