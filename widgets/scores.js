@@ -15,12 +15,17 @@
  *    Within each enabled priority tier, matches are ranked by status:
  *      Live (1H, HT, 2H, ET, P) > Upcoming (NS) > Finished (FT, AET, PEN).
  * 3. Renders a strictly 3-row, logos-only broadcast widget view:
- *      - Row 1 (`title`): League Title
- *      - Row 2 (`icon` + `big` + `image` + `sub`):
- *          Home Team Logo (`icon`) + Score (`0 - 0`) + Away Team Logo (`image`)
- *          (Uses team logos only — no team names in the score row; changed
- *           scores highlight in green `#4cd964`)
- *      - Row 3 (`progress`): Match timing progress bar (0' -> 90' FT)
+ *      - When no match today: Shows "No Match Today" (`text`) with no `0 - 0`
+ *        score and no progress bar.
+ *      - When match has NOT started yet (`NS` / `TBD`):
+ *          Row 1 (`title`): League Title
+ *          Row 2 (`icon` + `big` + `image`): Home Logo + `0 - 0` + Away Logo
+ *          Row 3 (`sub`): Kick-off start time (e.g. `Starts at 20:00`), with
+ *          NO progress bar.
+ *      - When match HAS started (`1H`, `HT`, `2H`, `ET`, `P`, `FT`, etc.):
+ *          Row 1 (`title`): League Title · Live Minute / Status
+ *          Row 2 (`icon` + `big` + `image`): Home Logo + Score + Away Logo
+ *          Row 3 (`progress`): Match timing progress bar (0' -> 90' FT)
  * ============================================================================
  */
 
@@ -80,10 +85,10 @@ async function fetchSavedUserConfig(ctxFetch, preferredProfile) {
 export default async function (ctx) {
   const lang = ctx.lang || 'en';
   const labels = {
-    en: { noGames: 'No Match Today', live: 'LIVE', ft: 'FT', ht: 'HT' },
-    fr: { noGames: "Aucun match aujourd'hui", live: 'DIRECT', ft: 'FIN', ht: 'MT' },
-    es: { noGames: 'Sin partido hoy', live: 'VIVO', ft: 'FINAL', ht: 'MT' },
-    ar: { noGames: 'لا توجد مباراة اليوم', live: 'مباشر', ft: 'انتهت', ht: 'ش1' }
+    en: { noGames: 'No Match Today', live: 'LIVE', ft: 'FT', ht: 'HT', startsAt: 'Starts at', tbd: 'TBD' },
+    fr: { noGames: "Aucun match aujourd'hui", live: 'DIRECT', ft: 'FIN', ht: 'MT', startsAt: 'Début à', tbd: 'À définir' },
+    es: { noGames: 'Sin partido hoy', live: 'VIVO', ft: 'FINAL', ht: 'MT', startsAt: 'Empieza a las', tbd: 'Por definir' },
+    ar: { noGames: 'لا توجد مباراة اليوم', live: 'مباشر', ft: 'انتهت', ht: 'ش1', startsAt: 'تبدأ الساعة', tbd: 'لم يحدد' }
   };
   const t = labels[lang] || labels.en;
 
@@ -290,15 +295,14 @@ export default async function (ctx) {
     // Graceful network fallback
   }
 
-  // Strictly 3-row empty view when no match matches the configured sources today
+  // Empty state when no match today matches the configured sources:
+  // Show clearly that there is no match today, without "0 - 0" or an empty progress bar.
   if (!chosenMatch) {
     return {
       view: {
         title: 'Football Live',
         icon: '⚽',
-        big: '0 - 0',
-        sub: t.noGames,
-        progress: 0,
+        text: t.noGames,
         accent: '#64748b',
         link: 'account'
       },
@@ -312,13 +316,14 @@ export default async function (ctx) {
   const statusShort = chosenMatch.fixture?.status?.short || 'NS';
   const isLive = ['1H', 'HT', '2H', 'ET', 'P', 'BT'].includes(statusShort);
   const isFinished = ['FT', 'AET', 'PEN'].includes(statusShort);
+  const hasStarted = isLive || isFinished;
   const elapsed = Number(chosenMatch.fixture?.status?.elapsed) || 0;
 
   const homeTeam = chosenMatch.teams?.home || {};
   const awayTeam = chosenMatch.teams?.away || {};
 
-  const homeScore = statusShort === 'NS' ? 0 : (chosenMatch.goals?.home ?? 0);
-  const awayScore = statusShort === 'NS' ? 0 : (chosenMatch.goals?.away ?? 0);
+  const homeScore = !hasStarted ? 0 : (chosenMatch.goals?.home ?? 0);
+  const awayScore = !hasStarted ? 0 : (chosenMatch.goals?.away ?? 0);
   const currentScoreStr = `${homeScore}-${awayScore}`;
 
   const scoreChanged =
@@ -327,6 +332,7 @@ export default async function (ctx) {
     prevState.lastScore !== currentScoreStr;
 
   let timingTag = '';
+  let startLabel = '';
   let progressVal = 0;
   let accentColor = '#e50914';
 
@@ -339,32 +345,41 @@ export default async function (ctx) {
     progressVal = 1;
     accentColor = scoreChanged ? '#4cd964' : '#e50914';
   } else {
-    const kickOff = new Date(chosenMatch.fixture.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-    timingTag = kickOff;
-    progressVal = 0.02;
+    const kickOffDate = chosenMatch.fixture?.date ? new Date(chosenMatch.fixture.date) : null;
+    const kickOff = kickOffDate && !isNaN(kickOffDate.getTime())
+      ? kickOffDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+      : '';
+    startLabel = (statusShort === 'TBD' || !kickOff) ? t.tbd : `${t.startsAt} ${kickOff}`;
     accentColor = '#e50914';
   }
 
   const leagueName = chosenMatch.league?.name || 'Matchday';
-  // Row 1: League Title
-  const row1LeagueTitle = `${leagueName} · ${timingTag}`.slice(0, 40);
+  // Row 1: League Title (with live/FT status when started)
+  const row1LeagueTitle = (hasStarted ? `${leagueName} · ${timingTag}` : leagueName).slice(0, 40);
   // Row 2: Logos ONLY + Score ("0 - 0") — no team names or codes
   const row2BigScore = `${homeScore} - ${awayScore}`;
 
   const homeLogo = /^https:\/\//.test(homeTeam.logo || '') ? homeTeam.logo : '⚽';
   const awayLogo = /^https:\/\//.test(awayTeam.logo || '') ? awayTeam.logo : undefined;
 
+  const view = {
+    title: row1LeagueTitle,
+    icon: homeLogo,
+    image: awayLogo,
+    big: row2BigScore,
+    accent: accentColor,
+    link: 'match/' + chosenMatch.fixture.id
+  };
+
+  // Row 3: Show progress bar ONLY when match has started; otherwise show when it will start
+  if (hasStarted) {
+    view.progress = progressVal;
+  } else {
+    view.sub = startLabel;
+  }
+
   return {
-    view: {
-      title: row1LeagueTitle,
-      icon: homeLogo,
-      image: awayLogo,
-      big: row2BigScore,
-      sub: timingTag,
-      progress: progressVal,
-      accent: accentColor,
-      link: 'match/' + chosenMatch.fixture.id
-    },
+    view,
     state: {
       lastMatchId: chosenMatch.fixture.id,
       lastScore: currentScoreStr,

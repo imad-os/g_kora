@@ -286,13 +286,55 @@ test('widgets/scores.js renders a strictly 3-row logos-only layout (LeagueTitle,
   assert.equal(view.image, 'https://media.api-sports.io/football/teams/50.png', 'Away logo set in image');
   assert.equal(view.big, '2 - 1', 'Scoreline formatted as logos-only score 2 - 1');
 
-  // Row 3: progress bar for timing (63 / 90 = 0.7)
+  // Row 3: progress bar for timing (63 / 90 = 0.7) ONLY when match has started
   assert.equal(typeof view.progress, 'number');
   assert.ok(Math.abs(view.progress - 63 / 90) < 0.01, 'Timing progress bar matches 63/90');
+  assert.equal(view.sub, undefined, 'No extra sub row when progress bar is active');
 
   // Strictly 3 rows max: no extra rows array or text paragraph
   assert.equal(view.rows, undefined, 'No extra rows table');
   assert.equal(view.text, undefined, 'No extra text block');
+
+  // Verify unstarted match ('NS'): shows when it will start in `sub`, and NO `progress` bar
+  const upcomingFixture = {
+    ...mockFixture,
+    fixture: {
+      id: 998878,
+      date: '2026-11-09T20:00:00Z',
+      status: { short: 'NS', elapsed: null }
+    },
+    goals: { home: null, away: null }
+  };
+
+  const upcomingRes = await refresh({
+    ...ctx,
+    fetch: async (url: string) => {
+      if (url.includes('identitytoolkit.googleapis.com')) return { ok: true, json: async () => ({ idToken: 'mock-id-token' }) };
+      if (url.includes('firestore.googleapis.com')) {
+        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(savedConfig) } } }) };
+      }
+      return { ok: true, json: async () => ({ response: [upcomingFixture] }) };
+    }
+  });
+  assert.equal(upcomingRes.view.title, 'Premier League', 'Row 1 shows LeagueTitle');
+  assert.equal(upcomingRes.view.big, '0 - 0', 'Row 2 shows 0 - 0');
+  assert.equal(upcomingRes.view.progress, undefined, 'Unstarted match MUST NOT show a progress bar');
+  assert.ok(upcomingRes.view.sub && upcomingRes.view.sub.startsWith('Starts at '), 'Unstarted match shows when it is going to start');
+
+  // Verify empty state (no match today): shows "No Match Today" without "0 - 0" and without progress bar
+  const emptyRes = await refresh({
+    ...ctx,
+    fetch: async (url: string) => {
+      if (url.includes('identitytoolkit.googleapis.com')) return { ok: true, json: async () => ({ idToken: 'mock-id-token' }) };
+      if (url.includes('firestore.googleapis.com')) {
+        return { ok: true, json: async () => ({ fields: { latestConfigJson: { stringValue: JSON.stringify(savedConfig) } } }) };
+      }
+      return { ok: true, json: async () => ({ response: [] }) };
+    }
+  });
+  assert.equal(emptyRes.view.text, 'No Match Today', 'Empty state shows No Match Today');
+  assert.equal(emptyRes.view.big, undefined, 'Empty state MUST NOT show 0 - 0');
+  assert.equal(emptyRes.view.progress, undefined, 'Empty state MUST NOT show an empty progress bar');
 });
 
 test('services/notify.js emits 2-row goal notifications (RM 0 - 1 BRS in green + Yamal 13\') with https:// team crest logos', async () => {
