@@ -76,6 +76,7 @@ const State = {
         ],
         favorite_players: [],
         tracked_matches: [],
+        apiSource: 'wrapped',
         buttonMappings: {
             dateNext: 'pageUp',
             datePrev: 'pageDown',
@@ -334,6 +335,8 @@ const FavoritesService = {
 
         c.widgetSettings = normalizeSourceBlock(c.widgetSettings);
         c.serviceSettings = normalizeSourceBlock(c.serviceSettings);
+        // Football data source: 'wrapped' = our Firebase function (default), 'direct' = API-Football.
+        c.apiSource = c.apiSource === 'direct' ? 'direct' : 'wrapped';
 
         if (!Array.isArray(c.allowed_leagues) || c.allowed_leagues.length === 0) {
             c.allowed_leagues = (State.globalSettings && Array.isArray(State.globalSettings.allowed_leagues))
@@ -498,7 +501,8 @@ const Storage = {
             tracked_matches: cfg.tracked_matches || [],
             allowed_leagues: cfg.allowed_leagues || State.globalSettings?.allowed_leagues || [],
             widgetSettings: cfg.widgetSettings,
-            serviceSettings: cfg.serviceSettings
+            serviceSettings: cfg.serviceSettings,
+            apiSource: cfg.apiSource
         };
         const payloadJson = JSON.stringify(payloadObj);
 

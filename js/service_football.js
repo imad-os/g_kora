@@ -20,12 +20,49 @@ const FOOTBALL_CONFIG = {
         NA: { CUP: [22], CL: [16], SECOND: [] }
     },
     FRIENDLIES: [10, 666],
-    FAVORITE_TEAMS: [85, 50, 541, 529, 23]
+    FAVORITE_TEAMS: [85, 50, 541, 529, 23],
+    // Wrapped API = our Firebase function (Firebase project iptv-8b60c, functions/index.js "footballRequest"):
+    // GET <url>?endpoint=<api-football path>&<params>, answers the same JSON as API-Football
+    // and rotates the keys on the server.
+    WRAPPED_URL: "https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest",
+    SOURCES: ['wrapped', 'direct']
 };
 
 let currentApiIndex = 0;
 
 const FootballClient = {
+    /** 'wrapped' (Firebase function, default) or 'direct' (API-Football with the app's keys). */
+    getSource: function() {
+        const st = window.AppServices && window.AppServices.State;
+        const src = st && st.appConfig && st.appConfig.apiSource;
+        return FOOTBALL_CONFIG.SOURCES.includes(src) ? src : 'wrapped';
+    },
+
+    getWrappedUrl: function() {
+        const appConfig = (typeof MyPC !== 'undefined' && MyPC.app_config) ? MyPC.app_config : {};
+        return appConfig.wrappedUrl || FOOTBALL_CONFIG.WRAPPED_URL;
+    },
+
+    /** One GET through MyPC.net.fetch (no CORS on the TV) or the page's fetch when standalone. */
+    request: async function(url, headers) {
+        if (typeof MyPC !== 'undefined' && MyPC.net && typeof MyPC.net.fetch === 'function') {
+            const response = await MyPC.net.fetch(url, { method: 'GET', headers, responseType: 'json', timeout: 20000 });
+            if (!response.ok) throw new Error(`MyPC.net error: status ${response.status}`);
+            return response.body || (typeof response.json === 'function' ? await response.json() : {});
+        }
+        const response = await fetch(url, { method: 'GET', headers });
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        return response.json();
+    },
+
+    /** Wrapped API: the Firebase function asks API-Football for us. */
+    fetchWrapped: async function(cleanEndpoint, params) {
+        const qs = new URLSearchParams(Object.assign({ endpoint: cleanEndpoint.replace(/^\//, '') }, params)).toString();
+        const data = await this.request(`${this.getWrappedUrl()}?${qs}`, { 'Accept': 'application/json' });
+        if (data && data.error === true) throw new Error(data.message || 'Wrapped API error');
+        return data;
+    },
+
     /**
      * Resolve effective API entry including any owner override from MyPC.app_config
      */
@@ -46,6 +83,17 @@ const FootballClient = {
      */
     fetchData: async function(endpoint, params = {}, recursive = 0) {
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+        if (recursive === 0 && this.getSource() === 'wrapped') {
+            try {
+                const wrapped = await this.fetchWrapped(cleanEndpoint, params);
+                this.lastSource = 'wrapped';
+                return wrapped || { response: [] };
+            } catch (e) {
+                // Wrapper down or unreachable: ask API-Football directly so the app still works.
+                console.warn(`Wrapped API failed [${cleanEndpoint}], using direct football-api:`, e.message);
+            }
+        }
+        this.lastSource = 'direct';
         const api = this.getApiEntry();
         
         const queryString = new URLSearchParams(params).toString();

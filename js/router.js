@@ -734,6 +734,12 @@
                 }
             };
 
+            const API_SOURCES = [
+                { id: 'wrapped', label: 'Wrapped API', desc: 'Scores come through the Football Live server (Firebase function): it holds the API keys and switches key when one runs out. If it does not answer, the app asks football-api directly.' },
+                { id: 'direct', label: 'Direct football-api', desc: 'The TV asks API-Football (api-sports / RapidAPI) itself with the keys built into the app.' }
+            ];
+            const apiSource = cfg.apiSource === 'direct' ? 'direct' : 'wrapped';
+
             const MODE_PRESETS = [
                 { id: 'fav_teams_only', label: 'Only Favorite Teams' },
                 { id: 'tracked_only', label: 'Only Tracked Matches' },
@@ -851,6 +857,25 @@
                         'Choose which matches trigger 2-row Goal & Match Result notifications'
                     )}
 
+                    <section class="settings-section" id="section-api-source">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.9rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--bg-focus); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="ph ph-plugs-connected"></i> Football Data Source
+                            </h2>
+                            <div style="color: var(--text-muted); font-size: 0.9rem;">Where the app, the widget and the alerts get scores from</div>
+                        </div>
+                        <div class="settings-mode-bar">
+                            <span class="settings-mode-label">Source:</span>
+                            <div class="settings-mode-pills">${API_SOURCES.map(p => {
+                                const isActive = apiSource === p.id;
+                                return `<button type="button" class="settings-mode-pill api-source-pill focusable ${isActive ? 'active' : ''}" tabindex="0" data-api-source="${p.id}" aria-pressed="${isActive}">
+                                    ${isActive ? '● ' : ''}${p.label}
+                                </button>`;
+                            }).join('')}</div>
+                        </div>
+                        <div class="priority-desc" id="api-source-desc" style="margin-top: 0.6rem;">${(API_SOURCES.find(p => p.id === apiSource) || API_SOURCES[0]).desc}</div>
+                    </section>
+
                     <section class="settings-section">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
                             <h2 style="font-size: 1.4rem; font-weight: 600; color: var(--bg-focus); margin: 0; display: flex; align-items: center; gap: 0.5rem;">
@@ -920,6 +945,17 @@
                     window.AppServices.State.appConfig[targetKey] = block;
                     const sel = `.settings-mode-pill[data-settings-target="${targetKey}"][data-mode="${mode}"]`;
                     await persistAndRefreshSettings(`Updated ${targetKey === 'widgetSettings' ? 'Widget' : 'Notification'} filter mode`, sel);
+                };
+            });
+
+            // Football data source (Wrapped API / Direct football-api)
+            container.querySelectorAll('.api-source-pill').forEach(btn => {
+                btn.onclick = async () => {
+                    const src = btn.dataset.apiSource === 'direct' ? 'direct' : 'wrapped';
+                    window.AppServices.State.appConfig.apiSource = src;
+                    if (window.AppState) window.AppState.matchesCache = null; // next Matches page asks the new source
+                    const label = (API_SOURCES.find(p => p.id === src) || {}).label || src;
+                    await persistAndRefreshSettings(`Football data source: ${label}`, `.api-source-pill[data-api-source="${src}"]`);
                 };
             });
 

@@ -127,6 +127,49 @@ function shortTeamCode(name) {
   return clean.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || clean.slice(0, 3).toUpperCase();
 }
 
+const WRAPPED_URL = 'https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest';
+
+/**
+ * Asks API-Football for `endpoint` (e.g. 'fixtures') with `params`.
+ * apiSource 'wrapped' (default) = our Firebase function footballRequest (it holds and rotates the keys);
+ * if it does not answer, or apiSource is 'direct', API-Football is asked with the built-in keys.
+ * Returns the `response` array, or null when nothing worked.
+ */
+async function fetchFootball(ctx, endpoint, params, apiSource, appConfig) {
+  const okList = (data) => {
+    const hasQuotaErr = data && data.errors && Object.keys(data.errors).length > 0 && (!data.response || data.response.length === 0);
+    return (!hasQuotaErr && data && Array.isArray(data.response)) ? data.response : null;
+  };
+  if (apiSource !== 'direct') {
+    try {
+      const qs = new URLSearchParams(Object.assign({ endpoint }, params)).toString();
+      const res = await ctx.fetch((appConfig.wrappedUrl || WRAPPED_URL) + '?' + qs, { headers: { 'Accept': 'application/json' } });
+      if (res && res.ok) {
+        const list = okList(await res.json());
+        if (list) return list;
+      }
+    } catch (e) {}
+  }
+  const qs = new URLSearchParams(params).toString();
+  const keysToTry = appConfig.apiKey ? [appConfig.apiKey, ...API_KEYS] : API_KEYS;
+  for (const apiKey of keysToTry) {
+    try {
+      const res = await ctx.fetch('https://api-football-v1.p.rapidapi.com/v3/' + endpoint + '?' + qs, {
+        headers: {
+          'x-rapidapi-host': 'api-football-v1.p.rapidapi.com',
+          'x-rapidapi-key': apiKey,
+          'Accept': 'application/json'
+        }
+      });
+      if (res && res.ok) {
+        const list = okList(await res.json());
+        if (list) return list;
+      }
+    } catch (e) {}
+  }
+  return null;
+}
+
 export default async function (ctx) {
   const st = ctx.state || { matchStates: {} };
   if (!st.matchStates) st.matchStates = {};
@@ -270,25 +313,7 @@ export default async function (ctx) {
   }
 
   try {
-    const keysToTry = appConfig.apiKey ? [appConfig.apiKey, ...API_KEYS] : API_KEYS;
-    let liveMatches = null;
-    for (const apiKey of keysToTry) {
-      const res = await ctx.fetch('https://api-football-v1.p.rapidapi.com/v3/fixtures?live=all', {
-        headers: {
-          'x-rapidapi-host': 'api-football-v1.p.rapidapi.com',
-          'x-rapidapi-key': apiKey,
-          'Accept': 'application/json'
-        }
-      });
-      if (res && res.ok) {
-        const data = await res.json();
-        const hasQuotaErr = data && data.errors && Object.keys(data.errors).length > 0 && (!data.response || data.response.length === 0);
-        if (!hasQuotaErr && Array.isArray(data?.response)) {
-          liveMatches = data.response;
-          break;
-        }
-      }
-    }
+    let liveMatches = await fetchFootball(ctx, 'fixtures', { live: 'all' }, latestCfg.apiSource, appConfig);
 
     if (Array.isArray(liveMatches)) {
       for (const m of liveMatches) {
