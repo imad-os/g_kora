@@ -101,11 +101,11 @@ async function fetchSavedUserConfig(ctxFetch) {
   return null;
 }
 
-const WRAPPED_URL = 'https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest';
+const WRAPPED_URL = 'https://iptv-lists.mypc-app.workers.dev/footballRequest';
 
 /**
  * Asks API-Football for `endpoint` (e.g. 'fixtures') with `params` through the source the user chose:
- * 'wrapped' (default) = our Firebase function footballRequest (it holds and rotates the keys), no fallback;
+ * 'wrapped' (default) = our Cloudflare Worker footballRequest (it holds and rotates the keys), no fallback;
  * 'direct' = API-Football with the built-in keys.
  * Returns { list, error, source }: `list` is the response array or null, `error` the reason when it failed.
  */
@@ -123,7 +123,7 @@ async function fetchFootball(ctx, endpoint, params, apiSource, appConfig) {
       const res = await ctx.fetch((appConfig.wrappedUrl || WRAPPED_URL) + '?' + qs, { headers: { 'Accept': 'application/json' } });
       let data = null;
       try { data = await res.json(); } catch (e) {}
-      if (!res || !res.ok) return { list: null, source, error: (data && data.message) || ('HTTP ' + (res && res.status)) };
+      if (!res || !res.ok) return { list: null, source, error: ((data && (data.message || (typeof data.error === 'string' && data.error))) ? (data.message || data.error) + ' (HTTP ' + res.status + ')' : 'HTTP ' + (res && res.status)) };
       const err = errText(data);
       if (err) return { list: null, source, error: err };
       return { list: Array.isArray(data && data.response) ? data.response : [], source, error: '' };

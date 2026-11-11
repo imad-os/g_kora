@@ -21,8 +21,8 @@ on channelUP Down : navigate dates ; channel up date+1day , channelDown date-1da
 }
 ## Football data source (Settings > Football Data Source)
 
-- **Wrapped API** (default): requests go to the Firebase function `footballRequest`
-  (`https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest?endpoint=<path>&<params>`), which holds and
+- **Wrapped API** (default): requests go to the Cloudflare Worker route `footballRequest` (repo imad-os/fb, `cloudflare/`; was a Firebase function before 1.3.3)
+  (`https://iptv-lists.mypc-app.workers.dev/footballRequest?endpoint=<path>&<params>`), which holds and
   rotates the API-Football keys. No fallback: its errors are shown (page, red badge, widget). Override the address with
   `wrappedUrl` in the app's config (App Store Manager > Config).
 - **Direct football-api**: the TV asks API-Football (RapidAPI / api-sports) with the built-in keys.

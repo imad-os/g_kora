@@ -735,7 +735,7 @@
             };
 
             const API_SOURCES = [
-                { id: 'wrapped', label: 'Wrapped API', desc: 'Scores come through the Football Live server (Firebase function footballRequest): it holds the API keys and switches key when one runs out. Its errors are shown as they are.' },
+                { id: 'wrapped', label: 'Wrapped API', desc: 'Scores come through the Football Live server (Cloudflare Worker footballRequest): it holds the API keys and switches key when one runs out. Its errors are shown as they are.' },
                 { id: 'direct', label: 'Direct football-api', desc: 'The TV asks API-Football (api-sports / RapidAPI) itself with the keys built into the app.' }
             ];
             const apiSource = cfg.apiSource === 'direct' ? 'direct' : 'wrapped';

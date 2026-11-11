@@ -21,17 +21,18 @@ const FOOTBALL_CONFIG = {
     },
     FRIENDLIES: [10, 666],
     FAVORITE_TEAMS: [85, 50, 541, 529, 23],
-    // Wrapped API = our Firebase function (Firebase project iptv-8b60c, functions/index.js "footballRequest"):
+    // Wrapped API = our Cloudflare Worker (repo imad-os/fb, cloudflare/src/services.js "footballRequest";
+    // was the Firebase function of the same name before 1.3.3):
     // GET <url>?endpoint=<api-football path>&<params>, answers the same JSON as API-Football
     // and rotates the keys on the server.
-    WRAPPED_URL: "https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest",
+    WRAPPED_URL: "https://iptv-lists.mypc-app.workers.dev/footballRequest",
     SOURCES: ['wrapped', 'direct']
 };
 
 let currentApiIndex = 0;
 
 const FootballClient = {
-    /** 'wrapped' (Firebase function, default) or 'direct' (API-Football with the app's keys). */
+    /** 'wrapped' (Cloudflare Worker, default) or 'direct' (API-Football with the app's keys). */
     getSource: function() {
         const st = window.AppServices && window.AppServices.State;
         const src = st && st.appConfig && st.appConfig.apiSource;
@@ -47,11 +48,19 @@ const FootballClient = {
     request: async function(url, headers) {
         if (typeof MyPC !== 'undefined' && MyPC.net && typeof MyPC.net.fetch === 'function') {
             const response = await MyPC.net.fetch(url, { method: 'GET', headers, responseType: 'json', timeout: 20000 });
-            if (!response.ok) throw new Error(`MyPC.net error: status ${response.status}`);
+            if (!response.ok) {
+                const b = response.body;
+                const msg = b && (b.message || (typeof b.error === 'string' && b.error));
+                throw new Error(msg ? `${msg} (HTTP ${response.status})` : `MyPC.net error: status ${response.status}`);
+            }
             return response.body || (typeof response.json === 'function' ? await response.json() : {});
         }
         const response = await fetch(url, { method: 'GET', headers });
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        if (!response.ok) {
+            let msg = '';
+            try { const b = await response.json(); msg = b && (b.message || (typeof b.error === 'string' && b.error)); } catch (e) {}
+            throw new Error(msg ? `${msg} (HTTP ${response.status})` : `HTTP error! status: ${response.status}`);
+        }
         return response.json();
     },
 
@@ -73,7 +82,7 @@ const FootballClient = {
         badge.title = error ? `Last request failed: ${error}` : 'Football data source (Settings > Football Data Source)';
     },
 
-    /** Wrapped API: the Firebase function asks API-Football for us. */
+    /** Wrapped API: the Cloudflare Worker asks API-Football for us. */
     fetchWrapped: async function(cleanEndpoint, params) {
         const qs = new URLSearchParams(Object.assign({ endpoint: cleanEndpoint.replace(/^\//, '') }, params)).toString();
         const data = await this.request(`${this.getWrappedUrl()}?${qs}`, { 'Accept': 'application/json' });

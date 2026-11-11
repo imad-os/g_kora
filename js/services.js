@@ -338,7 +338,7 @@ const FavoritesService = {
 
         c.widgetSettings = normalizeSourceBlock(c.widgetSettings);
         c.serviceSettings = normalizeSourceBlock(c.serviceSettings);
-        // Football data source: 'wrapped' = our Firebase function (default), 'direct' = API-Football.
+        // Football data source: 'wrapped' = our Cloudflare Worker (default), 'direct' = API-Football.
         c.apiSource = c.apiSource === 'direct' ? 'direct' : 'wrapped';
 
         if (!Array.isArray(c.allowed_leagues) || c.allowed_leagues.length === 0) {

@@ -44,8 +44,9 @@ await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (route) => {
   const url = route.request().url();
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': '*' };
   if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-  if (url.includes('cloudfunctions.net/footballRequest')) {
+  if (url.includes('workers.dev/footballRequest')) {
     hits.wrapped.push(url);
+    if (process.env.WRAP_500) return route.fulfill({ status: 500, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'error', error: true, message: 'FOOTBALL_KEYS is not set' }) });
     if (process.env.WRAP_DOWN) return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ CAI: 0, REC: 3, get: 'fixtures', errors: { requests: 'You have reached the request limit for the day, Go to https://dashboard.api-football.com to upgrade your plan.' }, results: 0, response: [] }) });
     return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ CAI: 0, REC: 0, ...fixtures(' · via Wrapped API') }) });
   }
@@ -70,6 +71,13 @@ const check = (name, cond) => { console.log((cond ? 'PASS ' : 'FAIL ') + name); 
 await page.goto(BASE + 'index.html');
 await settle();
 const first = count();
+if (process.env.WRAP_500) {
+  check('worker HTTP 500: its message is shown, API-Football not asked', first.direct === 0 && /Wrapped API: FOOTBALL_KEYS is not set \(HTTP 500\)/.test(await page.locator('.page-error').innerText().catch(() => '')));
+  await page.screenshot({ path: path.join(SHOTS, '7-worker-500.png') });
+  await browser.close(); server.close();
+  console.log(ok ? 'ALL PASS' : 'SOME FAILED');
+  process.exit(ok ? 0 : 1);
+}
 if (process.env.WRAP_DOWN) {
   // The wrapper answers with an API-Football error: the app shows it, never quietly uses the other source.
   check('wrapper error: API-Football NOT asked (no silent fallback)', first.wrapped > 0 && first.direct === 0);
