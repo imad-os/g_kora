@@ -55,6 +55,24 @@ const FootballClient = {
         return response.json();
     },
 
+    /** The API's error text when it answered with errors and no data (quota, bad key...), else ''. */
+    errorText: function(data) {
+        if (!data || !data.errors) return '';
+        const vals = Array.isArray(data.errors) ? data.errors : Object.values(data.errors);
+        if (!vals.length || (Array.isArray(data.response) && data.response.length)) return '';
+        return vals.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' · ');
+    },
+
+    /** Badge next to the date: which source is used now, red when its last answer was an error. */
+    setStatus: function(source, error) {
+        this.lastError = error || '';
+        const badge = document.getElementById('api-source-badge');
+        if (!badge) return;
+        badge.textContent = source === 'direct' ? 'Direct football-api' : 'Wrapped API';
+        badge.className = 'api-source-badge ' + (source === 'direct' ? 'is-direct' : 'is-wrapped') + (error ? ' has-error' : '');
+        badge.title = error ? `Last request failed: ${error}` : 'Football data source (Settings > Football Data Source)';
+    },
+
     /** Wrapped API: the Firebase function asks API-Football for us. */
     fetchWrapped: async function(cleanEndpoint, params) {
         const qs = new URLSearchParams(Object.assign({ endpoint: cleanEndpoint.replace(/^\//, '') }, params)).toString();
@@ -83,17 +101,20 @@ const FootballClient = {
      */
     fetchData: async function(endpoint, params = {}, recursive = 0) {
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-        if (recursive === 0 && this.getSource() === 'wrapped') {
+        if (this.getSource() === 'wrapped') {
+            // Wrapped API only: no silent fallback, its errors are shown as they are.
+            let wrapped;
             try {
-                const wrapped = await this.fetchWrapped(cleanEndpoint, params);
-                this.lastSource = 'wrapped';
-                return wrapped || { response: [] };
+                wrapped = await this.fetchWrapped(cleanEndpoint, params);
             } catch (e) {
-                // Wrapper down or unreachable: ask API-Football directly so the app still works.
-                console.warn(`Wrapped API failed [${cleanEndpoint}], using direct football-api:`, e.message);
+                this.setStatus('wrapped', e.message);
+                throw new Error(`Wrapped API: ${e.message}`);
             }
+            const werr = this.errorText(wrapped);
+            this.setStatus('wrapped', werr);
+            if (werr) throw new Error(`Wrapped API: ${werr}`);
+            return wrapped || { response: [] };
         }
-        this.lastSource = 'direct';
         const api = this.getApiEntry();
         
         const queryString = new URLSearchParams(params).toString();
@@ -150,10 +171,9 @@ const FootballClient = {
             return this.fetchData(endpoint, params, recursive + 1);
         }
 
-        if (err && (!data || !data.response)) {
-            console.error(`Football Client Error [${cleanEndpoint}]:`, err.message);
-        }
-
+        const derr = (err && (!data || !data.response)) ? err.message : this.errorText(data);
+        this.setStatus('direct', derr);
+        if (derr) throw new Error(`Direct football-api: ${derr}`);
         return data || { response: [] };
     },
 

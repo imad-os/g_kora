@@ -116,6 +116,13 @@ body {
     font-weight: bold;
     color: var(--text-main);
 }
+.api-source-badge {
+    font-size: 0.8em; font-weight: 600; padding: 0.2rem 0.6rem; border-radius: 999px;
+    border: 1px solid #2f6f3e; color: #4cd964; background: rgba(76, 217, 100, 0.08); white-space: nowrap;
+}
+.api-source-badge.is-direct { border-color: #3a5a8c; color: #7fb2ff; background: rgba(127, 178, 255, 0.08); }
+.api-source-badge.has-error { border-color: #8c2f2f; color: #ff6b6b; background: rgba(255, 107, 107, 0.1); }
+.api-source-badge.has-error::before { content: '\26A0  '; }
 .ch-guide {
     display: flex; align-items: center; gap: 0.2rem;
     color: var(--text-muted); font-size: 0.8em;

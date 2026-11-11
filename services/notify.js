@@ -130,28 +130,36 @@ function shortTeamCode(name) {
 const WRAPPED_URL = 'https://europe-west1-iptv-8b60c.cloudfunctions.net/footballRequest';
 
 /**
- * Asks API-Football for `endpoint` (e.g. 'fixtures') with `params`.
- * apiSource 'wrapped' (default) = our Firebase function footballRequest (it holds and rotates the keys);
- * if it does not answer, or apiSource is 'direct', API-Football is asked with the built-in keys.
- * Returns the `response` array, or null when nothing worked.
+ * Asks API-Football for `endpoint` (e.g. 'fixtures') with `params` through the source the user chose:
+ * 'wrapped' (default) = our Firebase function footballRequest (it holds and rotates the keys), no fallback;
+ * 'direct' = API-Football with the built-in keys.
+ * Returns { list, error, source }: `list` is the response array or null, `error` the reason when it failed.
  */
 async function fetchFootball(ctx, endpoint, params, apiSource, appConfig) {
-  const okList = (data) => {
-    const hasQuotaErr = data && data.errors && Object.keys(data.errors).length > 0 && (!data.response || data.response.length === 0);
-    return (!hasQuotaErr && data && Array.isArray(data.response)) ? data.response : null;
+  const source = apiSource === 'direct' ? 'direct' : 'wrapped';
+  const errText = (data) => {
+    if (!data || !data.errors) return '';
+    const vals = Array.isArray(data.errors) ? data.errors : Object.values(data.errors);
+    if (!vals.length || (Array.isArray(data.response) && data.response.length)) return '';
+    return vals.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' · ');
   };
-  if (apiSource !== 'direct') {
+  if (source === 'wrapped') {
     try {
       const qs = new URLSearchParams(Object.assign({ endpoint }, params)).toString();
       const res = await ctx.fetch((appConfig.wrappedUrl || WRAPPED_URL) + '?' + qs, { headers: { 'Accept': 'application/json' } });
-      if (res && res.ok) {
-        const list = okList(await res.json());
-        if (list) return list;
-      }
-    } catch (e) {}
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (!res || !res.ok) return { list: null, source, error: (data && data.message) || ('HTTP ' + (res && res.status)) };
+      const err = errText(data);
+      if (err) return { list: null, source, error: err };
+      return { list: Array.isArray(data && data.response) ? data.response : [], source, error: '' };
+    } catch (e) {
+      return { list: null, source, error: (e && e.message) || 'network error' };
+    }
   }
   const qs = new URLSearchParams(params).toString();
   const keysToTry = appConfig.apiKey ? [appConfig.apiKey, ...API_KEYS] : API_KEYS;
+  let lastErr = '';
   for (const apiKey of keysToTry) {
     try {
       const res = await ctx.fetch('https://api-football-v1.p.rapidapi.com/v3/' + endpoint + '?' + qs, {
@@ -161,13 +169,14 @@ async function fetchFootball(ctx, endpoint, params, apiSource, appConfig) {
           'Accept': 'application/json'
         }
       });
-      if (res && res.ok) {
-        const list = okList(await res.json());
-        if (list) return list;
-      }
-    } catch (e) {}
+      if (!res || !res.ok) { lastErr = 'HTTP ' + (res && res.status); continue; }
+      const data = await res.json();
+      const err = errText(data);
+      if (err) { lastErr = err; continue; }
+      return { list: Array.isArray(data && data.response) ? data.response : [], source, error: '' };
+    } catch (e) { lastErr = (e && e.message) || 'network error'; }
   }
-  return null;
+  return { list: null, source, error: lastErr || 'no answer' };
 }
 
 export default async function (ctx) {
@@ -313,7 +322,9 @@ export default async function (ctx) {
   }
 
   try {
-    let liveMatches = await fetchFootball(ctx, 'fixtures', { live: 'all' }, latestCfg.apiSource, appConfig);
+    const fetched = await fetchFootball(ctx, 'fixtures', { live: 'all' }, latestCfg.apiSource, appConfig);
+    if (fetched.error) console.warn('Football Live alerts: ' + fetched.source + ' API error: ' + fetched.error);
+    let liveMatches = fetched.list;
 
     if (Array.isArray(liveMatches)) {
       for (const m of liveMatches) {

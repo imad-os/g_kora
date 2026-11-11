@@ -735,10 +735,11 @@
             };
 
             const API_SOURCES = [
-                { id: 'wrapped', label: 'Wrapped API', desc: 'Scores come through the Football Live server (Firebase function): it holds the API keys and switches key when one runs out. If it does not answer, the app asks football-api directly.' },
+                { id: 'wrapped', label: 'Wrapped API', desc: 'Scores come through the Football Live server (Firebase function footballRequest): it holds the API keys and switches key when one runs out. Its errors are shown as they are.' },
                 { id: 'direct', label: 'Direct football-api', desc: 'The TV asks API-Football (api-sports / RapidAPI) itself with the keys built into the app.' }
             ];
             const apiSource = cfg.apiSource === 'direct' ? 'direct' : 'wrapped';
+            const lastApiError = (window.FootballClient && window.FootballClient.lastError) || '';
 
             const MODE_PRESETS = [
                 { id: 'fav_teams_only', label: 'Only Favorite Teams' },
@@ -874,6 +875,7 @@
                             }).join('')}</div>
                         </div>
                         <div class="priority-desc" id="api-source-desc" style="margin-top: 0.6rem;">${(API_SOURCES.find(p => p.id === apiSource) || API_SOURCES[0]).desc}</div>
+                        <div class="priority-desc" id="api-source-status" style="margin-top: 0.4rem; color: ${lastApiError ? '#ff6b6b' : '#4cd964'};">${lastApiError ? 'Last request failed: ' + lastApiError.replace(/</g, '&lt;') : 'In use now: ' + (API_SOURCES.find(p => p.id === apiSource) || API_SOURCES[0]).label}</div>
                     </section>
 
                     <section class="settings-section">
@@ -954,6 +956,7 @@
                     const src = btn.dataset.apiSource === 'direct' ? 'direct' : 'wrapped';
                     window.AppServices.State.appConfig.apiSource = src;
                     if (window.AppState) window.AppState.matchesCache = null; // next Matches page asks the new source
+                    if (window.FootballClient) window.FootballClient.setStatus(src, '');
                     const label = (API_SOURCES.find(p => p.id === src) || {}).label || src;
                     await persistAndRefreshSettings(`Football data source: ${label}`, `.api-source-pill[data-api-source="${src}"]`);
                 };

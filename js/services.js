@@ -232,7 +232,10 @@ const API = {
             const errorMessages = error.message || "Failed to load football data.";
             if (isLoading) {
                 Helpers.showPageError(errorMessages);
-            } else {
+            } else if (API.lastToast !== errorMessages || Date.now() - (API.lastToastAt || 0) > 60000) {
+                // Background refreshes repeat the same error: show it once a minute at most.
+                API.lastToast = errorMessages;
+                API.lastToastAt = Date.now();
                 Helpers.showToast(errorMessages, 'error');
             }
             return null;

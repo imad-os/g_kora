@@ -46,7 +46,7 @@ await page.route(/^https?:\/\/(?!127\.0\.0\.1)/, async (route) => {
   if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
   if (url.includes('cloudfunctions.net/footballRequest')) {
     hits.wrapped.push(url);
-    if (process.env.WRAP_DOWN) return route.fulfill({ status: 500, headers: cors, body: '{"error":true,"message":"down"}' });
+    if (process.env.WRAP_DOWN) return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ CAI: 0, REC: 3, get: 'fixtures', errors: { requests: 'You have reached the request limit for the day, Go to https://dashboard.api-football.com to upgrade your plan.' }, results: 0, response: [] }) });
     return route.fulfill({ status: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ CAI: 0, REC: 0, ...fixtures(' · via Wrapped API') }) });
   }
   if (/api-football|api-sports\.io\//.test(url) && !url.includes('media.api-sports.io')) {
@@ -71,14 +71,31 @@ await page.goto(BASE + 'index.html');
 await settle();
 const first = count();
 if (process.env.WRAP_DOWN) {
-  check('wrapper down: app falls back to API-Football', first.wrapped > 0 && first.direct > 0);
-  await page.screenshot({ path: path.join(SHOTS, '5-wrapper-down-fallback.png') });
+  // The wrapper answers with an API-Football error: the app shows it, never quietly uses the other source.
+  check('wrapper error: API-Football NOT asked (no silent fallback)', first.wrapped > 0 && first.direct === 0);
+  const errText = await page.locator('.page-error').innerText().catch(() => '');
+  check('wrapper error shown on the page with its source', /Wrapped API: You have reached the request limit/.test(errText));
+  check('badge says Wrapped API, in red', await page.locator('#api-source-badge.has-error').innerText() === 'Wrapped API');
+  await page.screenshot({ path: path.join(SHOTS, '5-wrapper-error.png') });
+  await page.evaluate(() => window.AppRouter.go('settings'));
+  await settle();
+  await page.locator('#section-api-source').scrollIntoViewIfNeeded();
+  check('settings shows the last error', /Last request failed: You have reached/.test(await page.locator('#api-source-status').innerText()));
+  await page.screenshot({ path: path.join(SHOTS, '6-settings-error.png') });
+  const widget = (await import(path.join(ROOT, 'widgets/scores.js'))).default;
+  const out = await widget({ config: {}, state: {}, lang: 'en', now: Date.now(), fetch: async (url) => {
+    if (url.includes('identitytoolkit')) return { ok: false, json: async () => ({}) };
+    return { ok: true, json: async () => ({ errors: { requests: 'You have reached the request limit for the day' }, response: [] }) };
+  } });
+  check('widget shows the error and the source: ' + out.view.title + ' / ' + out.view.text, out.view.title.includes('Wrapped API') && /request limit/.test(out.view.text));
   await browser.close(); server.close();
+  console.log(ok ? 'ALL PASS' : 'SOME FAILED');
   process.exit(ok ? 0 : 1);
 }
 check('default source is Wrapped API (function asked, API-Football not)', first.wrapped > 0 && first.direct === 0);
 console.log('  wrapped url:', hits.wrapped[0]);
 check('wrapped request carries endpoint + params', /endpoint=fixtures/.test(hits.wrapped[0] || ''));
+check('badge says Wrapped API', await page.locator('#api-source-badge').innerText() === 'Wrapped API');
 await page.screenshot({ path: path.join(SHOTS, '1-home-wrapped.png') });
 
 await page.evaluate(() => window.AppRouter.go('settings'));
@@ -99,6 +116,7 @@ await page.evaluate(() => window.AppRouter.go('home'));
 await settle();
 const after = count();
 check('with Direct, API-Football asked and the function not', after.direct > before.direct && after.wrapped === before.wrapped);
+check('badge says Direct football-api', await page.locator('#api-source-badge').innerText() === 'Direct football-api');
 await page.screenshot({ path: path.join(SHOTS, '4-home-direct.png') });
 
 await page.reload();
