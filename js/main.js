@@ -620,6 +620,9 @@
                 }
             },
             onInput: function(action, pressed, repeat, dev) {
+                // A controller's B also sends 'run' (B = run + cancel in My PC) and Y sends 'run' too: on a pad the
+                // face buttons are read by letter in MyPC.gamepad.on below (X = Track, Y = Favorite), so B is only Back.
+                if (action === 'run' && /^pad/.test(String(dev || ''))) return;
                 if (window.Navigation && typeof window.Navigation.handleAction === 'function') {
                     window.Navigation.handleAction(action, pressed, repeat, dev);
                 }

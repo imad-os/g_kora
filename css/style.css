@@ -1576,8 +1576,8 @@ body {
     box-shadow: 0 1px 3px rgba(0,0,0,0.5);
 }
 
-.hud-btn-b { background: var(--bg-focus); }
-.hud-btn-a { background: #333; border: 1px solid #555; }
+.hud-btn-a { background: var(--bg-focus); }
+.hud-btn-b { background: #333; border: 1px solid #555; }
 .hud-btn-x { background: #333; border: 1px solid #555; }
 .hud-btn-y { background: #ff9800; color: #000; }
 .hud-btn-shoulder { border-radius: 4px; background: #333; border: 1px solid #555; }
