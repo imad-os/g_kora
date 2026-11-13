@@ -310,6 +310,8 @@ export default async function (ctx) {
     return 2; // Finished third
   }
 
+  const MAX_MATCHES = 3;
+  const chosenList = [];
   let chosenMatch = null;
   let fetched = null;
 
@@ -333,14 +335,18 @@ export default async function (ctx) {
           .sort((a, b) => matchStatusPriority(a) - matchStatusPriority(b))
       };
 
+      // up to 3 matches from EVERY enabled source, in the priority order (tracked + favorite teams together, owner request 2026-11-13)
+      const seen = new Set();
       for (const sourceKey of priorityOrder) {
         if (!sources[sourceKey]) continue;
-        const candidates = buckets[sourceKey] || [];
-        if (candidates.length > 0) {
-          chosenMatch = candidates[0];
-          break;
+        for (const m of (buckets[sourceKey] || [])) {
+          const id = Number(m?.fixture?.id);
+          if (!id || seen.has(id) || chosenList.length >= MAX_MATCHES) continue;
+          seen.add(id);
+          chosenList.push(m);
         }
       }
+      chosenMatch = chosenList[0] || null;
     }
   } catch (err) {
     // Graceful network fallback
@@ -433,7 +439,7 @@ export default async function (ctx) {
   // Row 1: the competition's own logo (or its country's flag) before its name, never a team's flag
   const leagueLogo = pic(chosenMatch.league?.logo) || pic(chosenMatch.league?.flag) || '🏆';
 
-  const view = {
+  let view = {
     title: row1LeagueTitle,
     icon: leagueLogo,
     big: row2BigScore,
@@ -447,6 +453,28 @@ export default async function (ctx) {
     view.progress = progressVal;
   } else {
     view.sub = startLabel;
+  }
+
+  // 2 or 3 matches: one line each (competition logo, home flag, score, away flag, minute / start time)
+  if (chosenList.length > 1) {
+    const LIVE = ['1H', 'HT', '2H', 'ET', 'P', 'BT'], DONE = ['FT', 'AET', 'PEN'];
+    let anyLive = false;
+    const lines = chosenList.map((m) => {
+      const st = m.fixture?.status?.short || 'NS';
+      const live = LIVE.includes(st), done = DONE.includes(st);
+      if (live) anyLive = true;
+      const d = m.fixture?.date ? new Date(m.fixture.date) : null;
+      const ko = d && !isNaN(d.getTime()) ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+      const info = live ? (st === 'HT' ? t.ht : (Number(m.fixture?.status?.elapsed) || 0) + "'") : done ? t.ft : (st === 'TBD' || !ko ? t.tbd : ko);
+      return {
+        icon: pic(m.league?.logo) || pic(m.league?.flag) || '🏆',
+        left: pic(m.teams?.home?.logo) || '⚽',
+        score: (live || done) ? `${m.goals?.home ?? 0} - ${m.goals?.away ?? 0}` : '0 - 0',
+        right: pic(m.teams?.away?.logo) || '⚽',
+        info: String(info).slice(0, 16)
+      };
+    });
+    view = { title: 'Football Live', icon: '⚽', matches: lines, accent: anyLive ? '#4cd964' : accentColor, link: 'home' };
   }
 
   return {
