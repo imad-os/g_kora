@@ -18,13 +18,13 @@
  *      - When no match today: Shows "No Match Today" (`text`) with no `0 - 0`
  *        score and no progress bar.
  *      - When match has NOT started yet (`NS` / `TBD`):
- *          Row 1 (`title`): League Title
- *          Row 2 (`icon` + `big` + `image`): Home Logo + `0 - 0` + Away Logo
+ *          Row 1 (`icon` + `title`): League logo + League Title
+ *          Row 2 (`versus.left` + `big` + `versus.right`): Home Logo + `0 - 0` + Away Logo
  *          Row 3 (`sub`): Kick-off start time (e.g. `Starts at 20:00`), with
  *          NO progress bar.
  *      - When match HAS started (`1H`, `HT`, `2H`, `ET`, `P`, `FT`, etc.):
  *          Row 1 (`title`): League Title · Live Minute / Status
- *          Row 2 (`icon` + `big` + `image`): Home Logo + Score + Away Logo
+ *          Row 2 (`versus.left` + `big` + `versus.right`): Home Logo + Score + Away Logo
  *          Row 3 (`progress`): Match timing progress bar (0' -> 90' FT)
  * ============================================================================
  */
@@ -427,14 +427,17 @@ export default async function (ctx) {
   // Row 2: Logos ONLY + Score ("0 - 0") — no team names or codes
   const row2BigScore = `${homeScore} - ${awayScore}`;
 
-  const homeLogo = /^https:\/\//.test(homeTeam.logo || '') ? homeTeam.logo : '⚽';
-  const awayLogo = /^https:\/\//.test(awayTeam.logo || '') ? awayTeam.logo : undefined;
+  const pic = (u) => /^https:\/\//.test(u || '') ? u : '';
+  const homeLogo = pic(homeTeam.logo) || '⚽';
+  const awayLogo = pic(awayTeam.logo) || '⚽';
+  // Row 1: the competition's own logo (or its country's flag) before its name, never a team's flag
+  const leagueLogo = pic(chosenMatch.league?.logo) || pic(chosenMatch.league?.flag) || '🏆';
 
   const view = {
     title: row1LeagueTitle,
-    icon: homeLogo,
-    image: awayLogo,
+    icon: leagueLogo,
     big: row2BigScore,
+    versus: { left: homeLogo, right: awayLogo },   // Row 2: home flag  0 - 0  away flag
     accent: accentColor,
     link: 'match/' + chosenMatch.fixture.id
   };
