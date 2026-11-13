@@ -104,17 +104,8 @@ window.Utils = (function() {
 
     function saveTrackedMatches() {
         if (!window.AppState || !window.AppState.monitoredMatches) return;
-        const arr = [...window.AppState.monitoredMatches].map(Number).filter(Boolean);
-        try {
-            localStorage.setItem('tracked_matches', JSON.stringify(arr));
-        } catch (e) {}
-        try {
-            if (typeof MyPC !== 'undefined' && typeof MyPC.save === 'function') {
-                MyPC.save('tracked_matches', arr);
-            }
-        } catch (e) {}
-        if (window.AppServices && window.AppServices.State && window.AppServices.Storage) {
-            window.AppServices.State.appConfig.tracked_matches = arr;
+        // one save path for everything the user changes: My PC's user data (synced) + the widget / alerts bridge
+        if (window.AppServices && window.AppServices.Storage) {
             window.AppServices.Storage.saveUserConfig(
                 window.AppServices.State.currentUser?.uid || 'player',
                 window.AppServices.State.appConfig
@@ -221,12 +212,13 @@ window.Utils = (function() {
         return Boolean(window.AppState && window.AppState.monitoredMatches && window.AppState.monitoredMatches.has(Number(mid)));
     }
 
+    // save only when the list really changed (cards of finished matches call removeTracked at every render)
     function removeTracked(mid) {
         const num = Number(mid);
         const t = (window.AppState?.monitoredMatches && window.AppState.monitoredMatches.has(num))
             ? window.AppState.monitoredMatches.delete(num)
             : false;
-        saveTrackedMatches();
+        if (t) saveTrackedMatches();
         return t;
     }
 
@@ -235,7 +227,7 @@ window.Utils = (function() {
         const t = (window.AppState?.monitoredMatches && !window.AppState.monitoredMatches.has(num))
             ? Boolean(window.AppState.monitoredMatches.add(num))
             : false;
-        saveTrackedMatches();
+        if (t) saveTrackedMatches();
         return t;
     }
 

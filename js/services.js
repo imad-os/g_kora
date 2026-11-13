@@ -3,12 +3,9 @@
 /**
  * Football Live - Core Services, Storage & Cloud Sync Bridge for My PC Smart TV
  *
- * Persists user favorites & tracked matches across:
- * 1. MyPC.save('appConfig', cfg) & MyPC.load('appConfig', null) (per My PC profile)
- * 2. LocalStorage fallback for instant startup
- * 3. Per-user Firebase Firestore document (usersSettings/{uid})
- * 4. Shared MyPC Widget/Service Firestore REST Bridge (usersSettings/34n9lRAx7uUMeDQ3KW32H07qJhz1)
- *    so sandboxed data: Web Workers (widgets/scores.js & services/notify.js) always read live saved favorites.
+ * Favorites, tracked matches and settings are saved in My PC's user data (MyPC.save, synced by My PC)
+ * and in the shared Widget/Service bridge document (usersSettings/34n9lRAx7uUMeDQ3KW32H07qJhz1, Firestore REST)
+ * that the sandboxed widget (widgets/scores.js) and alerts service (services/notify.js) read. See `Storage` below.
  */
 
 const firebaseConfig = {
@@ -414,8 +411,6 @@ const FavoritesService = {
     }
 };
 
-let firebaseDb = null;
-let firebaseAuth = null;
 let bridgeTokenCache = { token: null, exp: 0 };
 
 async function getBridgeAuthToken() {
@@ -449,73 +444,116 @@ async function getBridgeAuthToken() {
     return null;
 }
 
+/*
+ * Saving (1.4.0): ONE copy of the user's data = the app config object below, kept in
+ *  - MyPC.save('appConfig')   per My PC profile; My PC backs it up and syncs it with the player account
+ *                             (TV <-> PC <-> phone signed in to the same account)
+ *  - the bridge document      usersSettings/<bridge uid>.profiles.<profile name> (read by the widget and the
+ *                             alerts service, and a second way to reach other devices of the same profile name)
+ * Every change made by the user stamps `changedAt`; when the copies differ the NEWEST one wins as a whole
+ * (so a match untracked on the PC is untracked on the TV too). Copies written before 1.4.0 have no stamp:
+ * their favorites and tracked matches are put together once, so nothing is lost.
+ * No timer: the bridge is read at start and again on resume / when the app is shown, at most once a minute.
+ */
+const SYNC_LISTS = ['favorite_teams', 'favorite_leagues', 'favorite_players', 'tracked_matches'];
+const BRIDGE_DOC = () => `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/usersSettings/${BRIDGE_CREDENTIALS.uid}`;
+const cleanName = (n) => String(n || 'player').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player';
+let lastPushed = '';
+let lastBridgeRead = 0;
+const changeListeners = [];
+
 const Storage = {
+    /** Called by the app whenever the data changed (re-render what is on screen). */
+    onChange: (fn) => { if (typeof fn === 'function') changeListeners.push(fn); },
+
+    /** Newest copy wins; copies without a stamp are put together (favorites + tracked matches). */
+    mergeCopies: (copies) => {
+        const list = copies.filter(c => c && typeof c === 'object');
+        if (!list.length) return null;
+        const stamped = list.filter(c => Number(c.changedAt) > 0);
+        if (stamped.length) {
+            let best = stamped[0];
+            for (const c of stamped) if (Number(c.changedAt) > Number(best.changedAt)) best = c;
+            return FavoritesService.normalizeConfig({ ...best });
+        }
+        const out = { ...list[0] };
+        for (const k of SYNC_LISTS) {
+            let all = [];
+            for (const c of list) if (Array.isArray(c[k])) all = all.concat(c[k]);
+            out[k] = all;
+        }
+        return FavoritesService.normalizeConfig(out);
+    },
+
+    /** My PC's copy for this profile (available from onInit). */
+    loadMyPC: () => {
+        try {
+            if (typeof MyPC === 'undefined' || typeof MyPC.load !== 'function') return null;
+            const cfg = MyPC.load('appConfig', null);
+            const tracked = MyPC.load('tracked_matches', null);
+            if (cfg && typeof cfg === 'object') {
+                // before 1.4.0 a track saved only 'tracked_matches': keep those ids too
+                if (!(Number(cfg.changedAt) > 0) && Array.isArray(tracked)) {
+                    return { ...cfg, tracked_matches: [...(cfg.tracked_matches || []), ...tracked] };
+                }
+                return cfg;
+            }
+            if (Array.isArray(tracked) && tracked.length) return { tracked_matches: tracked };
+        } catch (e) {}
+        return null;
+    },
+
     saveUserConfigLocally: (config) => {
         const cfg = config || State.appConfig;
         try {
-            localStorage.setItem('appConfig', JSON.stringify(cfg));
-        } catch (e) {}
-        try {
             if (typeof MyPC !== 'undefined' && typeof MyPC.save === 'function') {
-                MyPC.save('appConfig', cfg);
-                if (Array.isArray(cfg.tracked_matches)) {
-                    MyPC.save('tracked_matches', cfg.tracked_matches);
-                }
+                // only when it changed: every save is backed up and sent to the player account by My PC
+                const tracked = Array.isArray(cfg.tracked_matches) ? cfg.tracked_matches : [];
+                if (JSON.stringify(MyPC.load('appConfig', null)) !== JSON.stringify(cfg)) MyPC.save('appConfig', cfg);
+                if (JSON.stringify(MyPC.load('tracked_matches', null)) !== JSON.stringify(tracked)) MyPC.save('tracked_matches', tracked);
             }
         } catch (e) {}
     },
 
-    loadUserConfigLocally: () => {
-        // Priority 1: MyPC native profile storage (synchronous from onInit)
-        try {
-            if (typeof MyPC !== 'undefined' && typeof MyPC.load === 'function') {
-                const mypcSaved = MyPC.load('appConfig', null);
-                if (mypcSaved && typeof mypcSaved === 'object' && (Array.isArray(mypcSaved.favorite_teams) || Array.isArray(mypcSaved.favorite_leagues))) {
-                    return mypcSaved;
-                }
-            }
-        } catch (e) {}
+    loadUserConfigLocally: () => Storage.loadMyPC(),
 
-        // Priority 2: LocalStorage
-        try {
-            const configStr = localStorage.getItem('appConfig');
-            return configStr ? JSON.parse(configStr) : null;
-        } catch (e) {
-            return null;
-        }
-    },
-
-    /**
-     * Push user's favorites & tracked matches to the shared Firestore REST Bridge
-     * so sandboxed Web Workers (widgets/scores.js & services/notify.js) always have instant access.
-     */
+    /** Push this profile's copy to the bridge (skipped when nothing changed since the last push). */
     syncToWidgetServiceBridge: async (config) => {
         const cfg = FavoritesService.normalizeConfig(config || State.appConfig);
         if (window.AppState && window.AppState.monitoredMatches) {
             cfg.tracked_matches = Array.from(window.AppState.monitoredMatches).map(Number).filter(Boolean);
         }
-        const cleanUser = String(State.currentUser?.name || 'player').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player';
-        const payloadObj = {
-            username: cleanUser,
-            updatedAt: Date.now(),
+        const cleanUser = cleanName(State.currentUser?.name);
+        const payloadObj = Storage.payload(cfg);
+        const same = cleanUser + JSON.stringify(payloadObj);
+        if (same === lastPushed) return true;
+        payloadObj.updatedAt = Date.now();   // push time, read by the widget and the alerts service
+        const payloadJson = JSON.stringify(payloadObj);
+        return Storage._push(cfg, cleanUser, payloadJson, same);
+    },
+
+    payload: (cfg) => ({
+            username: cleanName(State.currentUser?.name),
+            changedAt: Number(cfg.changedAt) || 0,
             favorite_teams: cfg.favorite_teams || [],
             favorite_leagues: cfg.favorite_leagues || [],
             favorite_players: cfg.favorite_players || [],
             tracked_matches: cfg.tracked_matches || [],
             allowed_leagues: cfg.allowed_leagues || State.globalSettings?.allowed_leagues || [],
+            buttonMappings: cfg.buttonMappings,
             widgetSettings: cfg.widgetSettings,
             serviceSettings: cfg.serviceSettings,
             apiSource: cfg.apiSource
-        };
-        const payloadJson = JSON.stringify(payloadObj);
+    }),
 
+    _push: async (cfg, cleanUser, payloadJson, same) => {
+        lastPushed = same;   // set now: a second save of the same data while this one runs writes nothing
         try {
             const token = await getBridgeAuthToken();
-            if (!token) return false;
+            if (!token) throw new Error('no bridge sign-in');
+            const docUrl = BRIDGE_DOC();
 
-            const docUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/usersSettings/${BRIDGE_CREDENTIALS.uid}`;
-
-            // Read existing profiles map so we preserve other profiles on the same TV
+            // Read the profiles map so the other profiles (other TVs, other names) are kept
             let existingProfiles = {};
             try {
                 const getRes = await fetch(docUrl, { headers: { Authorization: `Bearer ${token}` } });
@@ -529,30 +567,20 @@ const Storage = {
 
             existingProfiles[cleanUser] = { stringValue: payloadJson };
 
-            const patchBody = {
-                fields: {
-                    latestConfigJson: { stringValue: payloadJson },
-                    widgetSettingsJson: { stringValue: JSON.stringify(cfg.widgetSettings || {}) },
-                    serviceSettingsJson: { stringValue: JSON.stringify(cfg.serviceSettings || {}) },
-                    lastUsername: { stringValue: cleanUser },
-                    updatedAt: { integerValue: String(Date.now()) },
-                    profiles: {
-                        mapValue: {
-                            fields: existingProfiles
-                        }
-                    }
-                }
-            };
-
             const patchRes = await fetch(docUrl, {
                 method: 'PATCH',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(patchBody)
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fields: {
+                        latestConfigJson: { stringValue: payloadJson },
+                        widgetSettingsJson: { stringValue: JSON.stringify(cfg.widgetSettings || {}) },
+                        serviceSettingsJson: { stringValue: JSON.stringify(cfg.serviceSettings || {}) },
+                        lastUsername: { stringValue: cleanUser },
+                        updatedAt: { integerValue: String(Date.now()) },
+                        profiles: { mapValue: { fields: existingProfiles } }
+                    }
+                })
             });
-
             if (patchRes.ok) {
                 State.bridgeSynced = true;
                 return true;
@@ -560,146 +588,89 @@ const Storage = {
         } catch (e) {
             console.warn("Widget/Service bridge sync warning:", e);
         }
+        if (lastPushed === same) lastPushed = '';   // failed: the next save tries again
         return false;
     },
 
+    /** This profile's copy on the bridge, or null (never another profile's copy). */
     loadFromWidgetServiceBridge: async (mypcUsername) => {
         try {
             const token = await getBridgeAuthToken();
             if (!token) return null;
-            const docUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/(default)/documents/usersSettings/${BRIDGE_CREDENTIALS.uid}`;
-            const res = await fetch(docUrl, { headers: { Authorization: `Bearer ${token}` } });
+            const res = await fetch(BRIDGE_DOC(), { headers: { Authorization: `Bearer ${token}` } });
             if (!res.ok) return null;
+            lastBridgeRead = Date.now();
             const doc = await res.json();
-            const fields = doc.fields || {};
-            const cleanUser = String(mypcUsername || 'player').toLowerCase().replace(/[^a-z0-9_]/g, '') || 'player';
-
-            if (fields.profiles?.mapValue?.fields?.[cleanUser]?.stringValue) {
+            const entry = doc?.fields?.profiles?.mapValue?.fields?.[cleanName(mypcUsername)]?.stringValue;
+            if (entry) {
                 State.bridgeSynced = true;
-                return JSON.parse(fields.profiles.mapValue.fields[cleanUser].stringValue);
-            }
-            if (fields.latestConfigJson?.stringValue) {
-                State.bridgeSynced = true;
-                return JSON.parse(fields.latestConfigJson.stringValue);
+                return JSON.parse(entry);
             }
         } catch (e) {}
         return null;
     },
 
-    initSeamlessFirebase: async (mypcUsername) => {
-        const username = mypcUsername || "Player";
-        const cleanUser = username.toLowerCase().replace(/[^a-z0-9_]/g, '') || "player";
-
-        if (typeof firebase !== 'undefined' && firebase.initializeApp) {
-            try {
-                if (!firebase.apps.length) {
-                    firebase.initializeApp(firebaseConfig);
-                }
-                firebaseAuth = firebase.auth();
-                firebaseDb = firebase.firestore();
-
-                const userCredential = await firebaseAuth.signInWithEmailAndPassword(
-                    BRIDGE_CREDENTIALS.email,
-                    BRIDGE_CREDENTIALS.password
-                );
-
-                if (userCredential && userCredential.user) {
-                    const u = userCredential.user;
-                    State.currentUser = { uid: u.uid, email: `${cleanUser}@mypc.football`, name: username };
-                    State.firebaseConnected = true;
-
-                    const doc = await firebaseDb.collection('usersSettings').doc(u.uid).get();
-                    if (doc.exists) {
-                        const data = doc.data() || {};
-                        let remoteConfig = null;
-                        if (data.profiles && typeof data.profiles[cleanUser] === 'string') {
-                            try { remoteConfig = JSON.parse(data.profiles[cleanUser]); } catch (e) {}
-                        } else if (typeof data.latestConfigJson === 'string') {
-                            try { remoteConfig = JSON.parse(data.latestConfigJson); } catch (e) {}
-                        } else if (Array.isArray(data.favorite_teams) || Array.isArray(data.favourit_teams)) {
-                            remoteConfig = data;
-                        }
-
-                        if (remoteConfig && (Array.isArray(remoteConfig.favorite_teams) || Array.isArray(remoteConfig.favourit_teams))) {
-                            // Merge with any local changes if local already exists
-                            const local = Storage.loadUserConfigLocally();
-                            const merged = local ? FavoritesService.normalizeConfig({
-                                ...remoteConfig,
-                                ...local,
-                                favorite_teams: local.favorite_teams || remoteConfig.favorite_teams,
-                                favorite_leagues: local.favorite_leagues || remoteConfig.favorite_leagues,
-                                tracked_matches: local.tracked_matches || remoteConfig.tracked_matches,
-                                allowed_leagues: local.allowed_leagues || remoteConfig.allowed_leagues,
-                                widgetSettings: local.widgetSettings || remoteConfig.widgetSettings,
-                                serviceSettings: local.serviceSettings || remoteConfig.serviceSettings
-                            }) : FavoritesService.normalizeConfig(remoteConfig);
-                            State.appConfig = merged;
-                            Storage.saveUserConfigLocally(State.appConfig);
-                            await Storage.syncToWidgetServiceBridge(State.appConfig);
-                            return State.appConfig;
-                        }
-                    }
-                    await Storage.syncToWidgetServiceBridge(State.appConfig);
-                }
-            } catch (fbErr) {
-                console.warn("Seamless Firebase initialization fallback:", fbErr.message);
-            }
-        }
-        return null;
+    /** Put a merged copy in place: state, tracked matches, My PC's copy. Returns true when something changed. */
+    apply: (cfg) => {
+        const before = JSON.stringify(State.appConfig) + '|' + JSON.stringify([...(window.AppState?.monitoredMatches || [])]);
+        State.appConfig = FavoritesService.normalizeConfig(cfg);
+        if (window.AppState) window.AppState.monitoredMatches = new Set(State.appConfig.tracked_matches.map(Number).filter(Boolean));
+        Storage.saveUserConfigLocally(State.appConfig);
+        return before !== JSON.stringify(State.appConfig) + '|' + JSON.stringify(State.appConfig.tracked_matches);
     },
 
+    /** At start (from onInit): My PC's copy at once, then the bridge's copy (waits at most 3 s). */
     loadUserConfig: async (mypcUsername) => {
-        // 1. Check MyPC.load('appConfig', null) or localStorage first for immediate responsiveness
-        const local = Storage.loadUserConfigLocally();
-        if (local) {
-            State.appConfig = FavoritesService.normalizeConfig(local);
-        }
+        const username = mypcUsername || 'Player';
+        State.currentUser = { uid: BRIDGE_CREDENTIALS.uid, email: `${cleanName(username)}@mypc.football`, name: username };
+        const mine = Storage.loadMyPC();
+        if (mine) Storage.apply(Storage.mergeCopies([mine]));
 
-        // 2. Check per-profile Firebase Firestore
-        const fbConfig = await Storage.initSeamlessFirebase(mypcUsername);
-        if (fbConfig) {
-            if (Array.isArray(fbConfig.tracked_matches) && window.AppState) {
-                fbConfig.tracked_matches.forEach(id => window.AppState.monitoredMatches.add(Number(id)));
+        const remoteP = Storage.loadFromWidgetServiceBridge(username);
+        const finish = (remote) => {
+            const merged = Storage.mergeCopies([mine, remote]) || FavoritesService.normalizeConfig(State.appConfig);
+            // copies from before 1.4.0 (no stamp) were put together: stamp the result so every device agrees on it
+            if (!(Number(merged.changedAt) > 0) && (mine || remote)) merged.changedAt = Date.now();
+            const changed = Storage.apply(merged);
+            // the bridge already has this version: no write
+            if (remote && Number(remote.changedAt) > 0 && Number(remote.changedAt) === Number(State.appConfig.changedAt)) {
+                const c = FavoritesService.normalizeConfig(State.appConfig);
+                lastPushed = cleanName(State.currentUser?.name) + JSON.stringify(Storage.payload(c));
             }
-            return fbConfig;
+            Storage.syncToWidgetServiceBridge(State.appConfig);
+            return changed;
+        };
+        let late = false;
+        const timeout = new Promise(r => setTimeout(() => { late = true; r('late'); }, 3000));
+        const first = await Promise.race([remoteP, timeout]);
+        if (first === 'late') {
+            remoteP.then(remote => { if (finish(remote)) changeListeners.forEach(fn => { try { fn('load'); } catch (e) {} }); });
+        } else {
+            finish(first);
         }
-
-        // 3. Check shared Widget/Service Bridge if no local config was saved yet
-        if (!local) {
-            const bridgeCfg = await Storage.loadFromWidgetServiceBridge(mypcUsername);
-            if (bridgeCfg) {
-                State.appConfig = FavoritesService.normalizeConfig(Object.assign({}, State.appConfig, bridgeCfg));
-                Storage.saveUserConfigLocally(State.appConfig);
-            }
-        }
-
-        // Ensure widget/service bridge always has the active config
-        Storage.syncToWidgetServiceBridge(State.appConfig);
         return State.appConfig;
     },
 
+    /** On resume / when shown: another device may have changed something (at most one read a minute). */
+    refreshFromBridge: async (force) => {
+        if (!force && Date.now() - lastBridgeRead < 60000) return false;
+        lastBridgeRead = Date.now();
+        const remote = await Storage.loadFromWidgetServiceBridge(State.currentUser?.name);
+        if (!remote || !(Number(remote.changedAt) > (Number(State.appConfig.changedAt) || 0))) return false;
+        const changed = Storage.apply(Storage.mergeCopies([State.appConfig, remote]));
+        if (changed) changeListeners.forEach(fn => { try { fn('remote'); } catch (e) {} });
+        return changed;
+    },
+
+    /** Every change made by the user goes through here: stamped, saved in My PC, pushed to the bridge. */
     saveUserConfig: async (uid, config) => {
         if (config) State.appConfig = FavoritesService.normalizeConfig(config);
         if (window.AppState && window.AppState.monitoredMatches) {
             State.appConfig.tracked_matches = Array.from(window.AppState.monitoredMatches).map(Number).filter(Boolean);
         }
-
-        // 1. Save to MyPC.save('appConfig', ...) & localStorage immediately
+        State.appConfig.changedAt = Math.max(Date.now(), (Number(State.appConfig.changedAt) || 0) + 1);
         Storage.saveUserConfigLocally(State.appConfig);
-
-        // 2. Save to Widget & Service Firestore REST Bridge (non-blocking or awaited)
-        const bridgePromise = Storage.syncToWidgetServiceBridge(State.appConfig);
-
-        // 3. Save to user's personal Firebase document if connected
-        if (firebaseDb && State.currentUser && State.currentUser.uid && State.currentUser.uid !== 'local_player') {
-            try {
-                await firebaseDb.collection('usersSettings').doc(State.currentUser.uid).set(State.appConfig, { merge: true });
-            } catch (err) {
-                console.warn("Firebase save warning:", err.message);
-            }
-        }
-
-        await bridgePromise;
+        await Storage.syncToWidgetServiceBridge(State.appConfig);
     },
 
     loadGlobalSettings: async () => {
@@ -710,11 +681,6 @@ const Storage = {
     }
 };
 
-// Initial synchronous load
-const cached = Storage.loadUserConfigLocally();
-if (cached) {
-    State.appConfig = FavoritesService.normalizeConfig(cached);
-}
 
 const auth = {
     get currentUser() { return State.currentUser; },

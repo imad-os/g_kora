@@ -26,20 +26,7 @@
     let liveCheckTimer = null;
     let progressTimer = null;
 
-    // Load tracked matches from MyPC.load or localStorage
-    try {
-        let saved = null;
-        if (typeof MyPC !== 'undefined' && typeof MyPC.load === 'function') {
-            saved = MyPC.load('tracked_matches', null);
-        }
-        if (!Array.isArray(saved)) {
-            const raw = localStorage.getItem('tracked_matches');
-            if (raw) saved = JSON.parse(raw);
-        }
-        if (Array.isArray(saved)) {
-            window.AppState.monitoredMatches = new Set(saved.map(Number).filter(Boolean));
-        }
-    } catch (e) {}
+    // Tracked matches and favorites are loaded in onInit (Storage.loadUserConfig): My PC's user data is ready only then.
 
     function startLiveTimers() {
         if (!liveCheckTimer) {
@@ -591,6 +578,15 @@
 
                 initMyPCApp();
 
+                // another device (TV / PC / phone) changed favorites or tracked matches: show it
+                Storage.onChange(() => {
+                    window.AppState.matchesCache = null;
+                    if (window.AppRouter && typeof window.AppRouter.render === 'function') window.AppRouter.render();
+                });
+                document.addEventListener('visibilitychange', () => {
+                    if (!document.hidden) Storage.refreshFromBridge();
+                });
+
                 MyPC.setMenu([
                     { id: 'today', label: 'Today Matches' },
                     { id: 'live-only', label: 'Live Matches Only' },
@@ -610,6 +606,7 @@
                 Storage.syncToWidgetServiceBridge(State.appConfig);
             },
             onResume: function() {
+                Storage.refreshFromBridge();
                 startLiveTimers();
                 checkLiveMatches();
             },
